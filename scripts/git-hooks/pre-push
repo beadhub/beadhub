@@ -111,12 +111,4 @@ else
   echo "Warning: frontend deps not installed; skipping frontend checks (run 'pnpm -C frontend install')" >&2
 fi
 
-# ---- Go checks ----
-if [ -d bdh ] && command -v golangci-lint >/dev/null 2>&1; then
-  echo "Running Go checks (golangci-lint)..." >&2
-  make -s check-bdh
-elif [ -d bdh ]; then
-  echo "Warning: golangci-lint not found; skipping Go checks" >&2
-fi
-
 exit 0

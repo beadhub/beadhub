@@ -94,7 +94,6 @@ explicit_package_bases = true
 
 exclude = [
     "frontend/",
-    "bdh/",
 ]
 
 [tool.ruff]
