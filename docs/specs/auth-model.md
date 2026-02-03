@@ -1,13 +1,13 @@
-# BeadHub Auth Model (OSS + Cloud Embedding)
+# BeadHub Auth Model (OSS + Proxy Embedding)
 
-This spec describes the intended authentication and project-scoping model for BeadHub **OSS** deployments and for the case where the OSS server is embedded behind **BeadHub Cloud** (`../beadhub-cloud`).
+This spec describes the intended authentication and project-scoping model for BeadHub **OSS** deployments and for deployments where the OSS server is embedded behind a trusted gateway (reverse proxy / wrapper) that injects a signed internal auth context.
 
-The model is designed for **private/protected deployments**, with a clear public-client contract and a separate Cloud-injected internal context for Cloud embedding.
+The model is designed for **private/protected deployments**, with a clear public-client contract and a separate proxy-injected internal context for embedded deployments.
 
 ## Design Summary
 
 - Public clients authenticate with `Authorization: Bearer <project_api_key>` (`aw_sk_...`).
-- Project scope is derived server-side from the Bearer token (OSS) or from a trusted internal context (Cloud embedding).
+- Project scope is derived server-side from the Bearer token (OSS) or from a trusted internal context (proxy embedding).
 - Public clients do not send project scoping headers (e.g., `X-Project-ID`).
 - Dashboard SSE uses a header-capable streaming approach (not `EventSource`).
 
@@ -16,11 +16,11 @@ The model is designed for **private/protected deployments**, with a clear public
 - **Single public-client auth scheme**: all public clients authenticate with:
   - `Authorization: Bearer <project_api_key>`
   - where `<project_api_key>` is an `aw_sk_...` (secret) key issued by the system.
-- **Server derives project from auth**: project scope is derived server-side from the Bearer token (OSS) or from a trusted internal context (Cloud).
+- **Server derives project from auth**: project scope is derived server-side from the Bearer token (OSS) or from a trusted internal context (proxy embedding).
 - **One project per key**: a project API key authorizes exactly one project; public clients never “pick” a project independently.
 - **No server-side auth toggle**: server behavior must not depend on a server-side `BEADHUB_API_KEY` env var.
 - **No public `X-Project-ID`**: public clients (CLI and browser) never send `X-Project-ID`.
-- **Cloud embedding preserved**: Cloud terminates public auth (API key/JWT) and injects a trusted internal auth context to the OSS app.
+- **Embedding preserved**: the gateway terminates public auth (API key/JWT) and injects a trusted internal auth context to the OSS app.
 
 ## Non-goals
 
@@ -31,21 +31,21 @@ The model is designed for **private/protected deployments**, with a clear public
 ## Terminology
 
 - **Project API key**: the credential a human/agent uses to access a project on a server (`aw_sk_...`).
-- **Internal auth context**: a trusted set of headers injected by the Cloud gateway into the OSS server (not settable by public clients).
+- **Internal auth context**: a trusted set of headers injected by a gateway into the OSS server (not settable by public clients).
 
 ## Environment Variable Meanings
 
 | Variable | Where set | Meaning in this model |
 |----------|-----------|-----------------------|
 | `BEADHUB_API_KEY` | **Client** (bdh, dashboard, scripts) | Project API key (Bearer token). Not used by the server as an auth toggle. |
-| `BEADHUB_INTERNAL_AUTH_SECRET` | **Server** (Cloud-embedded only) | HMAC secret used to validate Cloud-injected internal auth context (`X-BH-Auth`). |
-| `SESSION_SECRET_KEY` | **Server** | Existing server secret; Cloud embedding may reuse it to sign `X-BH-Auth` if `BEADHUB_INTERNAL_AUTH_SECRET` is unset. |
+| `BEADHUB_INTERNAL_AUTH_SECRET` | **Server** (embedded mode only) | HMAC secret used to validate gateway-injected internal auth context (`X-BH-Auth`). |
+| `SESSION_SECRET_KEY` | **Server** | Existing server secret. Some deployments may reuse it to sign `X-BH-Auth` if `BEADHUB_INTERNAL_AUTH_SECRET` is unset. |
 
 ## Public Client Contract (bdh, dashboard, scripts)
 
 ### Auth
 
-- Clients send `Authorization: Bearer <project_api_key>` on **all** API requests to a BeadHub server (OSS or Cloud).
+- Clients send `Authorization: Bearer <project_api_key>` on **all** API requests to a BeadHub server (standalone or embedded).
 - The key is provided via environment variable `BEADHUB_API_KEY` (client-side meaning only).
 
 ### Local configuration
@@ -73,7 +73,7 @@ The model is designed for **private/protected deployments**, with a clear public
 
 The server resolves project scope using the following precedence:
 
-1. **Internal Cloud context present** → trust internal context and ignore public `Authorization`.
+1. **Internal proxy context present** → trust internal context and ignore public `Authorization`.
 2. Otherwise require `Authorization: Bearer <project_api_key>` and derive `project_id` from the key.
 
 ### Authorization rules
@@ -81,9 +81,9 @@ The server resolves project scope using the following precedence:
 - Endpoints that accept a `workspace_id` must verify that the workspace belongs to the derived project context.
 - Any request-provided `project_id`/`X-Project-ID` must be ignored for authorization decisions (and ideally removed from public request schemas).
 
-## Cloud Embedding Contract
+## Proxy Embedding Contract
 
-Cloud is responsible for:
+A gateway/wrapper is responsible for:
 
 - Authenticating public requests (JWT, API keys, etc).
 - Stripping any client-provided internal headers (`X-Project-ID`, internal auth headers) at the edge.
@@ -91,7 +91,7 @@ Cloud is responsible for:
 
 The OSS server is responsible for:
 
-- Validating the Cloud internal context (signature/HMAC) and deriving `project_id` + principal identity from it.
+- Validating the injected internal context (signature/HMAC) and deriving `project_id` + principal identity from it.
 - Never trusting internal context unless validation succeeds.
 
 ## Security Considerations (Private/Protected Deployments)

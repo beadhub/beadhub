@@ -46,8 +46,8 @@ Before exposing BeadHub beyond a trusted network:
 |----------|-------------|
 | `BEADHUB_LOG_JSON` | Set to `true` for structured logging |
 | `BEADHUB_LOG_LEVEL` | Set to `WARNING` or `ERROR` in production |
-| `SESSION_SECRET_KEY` | Secret used for session signing; also used for Cloud internal auth validation if `BEADHUB_INTERNAL_AUTH_SECRET` is unset |
-| `BEADHUB_INTERNAL_AUTH_SECRET` | (Cloud-embedded only) HMAC secret to validate `X-BH-Auth` internal context |
+| `SESSION_SECRET_KEY` | Secret used for session signing; may also be used for internal auth validation in embedded/proxy deployments if `BEADHUB_INTERNAL_AUTH_SECRET` is unset |
+| `BEADHUB_INTERNAL_AUTH_SECRET` | (Embedded/proxy only) HMAC secret to validate `X-BH-Auth` internal context |
 
 **Server configuration:**
 
@@ -189,7 +189,7 @@ BeadHub OSS assumes a **trusted network**:
 This works well for:
 - Local development
 - Team VPN
-- Private cloud networks
+- Private networks (e.g., VPC)
 
 For untrusted networks, add network-level access control (VPN, firewall rules, private network).
 

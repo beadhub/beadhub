@@ -74,7 +74,7 @@ async def beads_upload(
     Upload beads issues via JSON payload.
 
     This endpoint accepts issues directly without requiring filesystem access,
-    making it suitable for cloud deployments where the server doesn't have
+    making it suitable for deployments where the server doesn't have
     access to the client's git repository.
 
     Requires an authenticated project context.

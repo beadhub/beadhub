@@ -26,7 +26,8 @@ class InternalAuthContext(TypedDict):
 
 
 def _get_internal_auth_secret() -> Optional[str]:
-    # Cloud uses SESSION_SECRET_KEY to sign X-BH-Auth. For standalone OSS this is unset.
+    # Some embedded/proxy deployments may reuse SESSION_SECRET_KEY to sign X-BH-Auth.
+    # For standalone OSS this is typically unset.
     return os.getenv("BEADHUB_INTERNAL_AUTH_SECRET") or os.getenv("SESSION_SECRET_KEY")
 
 
@@ -45,7 +46,7 @@ def _internal_auth_header_value(
 def parse_internal_auth_context(request: Request) -> Optional[InternalAuthContext]:
     """Parse and validate proxy-injected auth context headers for BeadHub OSS.
 
-    This is intended for Cloud/wrapper deployments where the wrapper authenticates the caller
+    This is intended for proxy/wrapper deployments where the wrapper authenticates the caller
     (JWT/cookie/API key) and injects project scope to the core service.
 
     The core MUST treat these headers as untrusted unless `X-BH-Auth` validates.
@@ -54,7 +55,7 @@ def parse_internal_auth_context(request: Request) -> Optional[InternalAuthContex
     if not internal_auth:
         return None
 
-    # In OSS mode the internal auth secret is intentionally unset. Treat any
+    # In standalone OSS mode the internal auth secret is intentionally unset. Treat any
     # client-supplied internal headers as untrusted and ignore them rather than
     # failing with a 500.
     secret = _get_internal_auth_secret()

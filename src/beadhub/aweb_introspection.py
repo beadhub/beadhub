@@ -23,10 +23,8 @@ async def get_identity_from_auth(request: Request, db: DatabaseInfra) -> AuthIde
     """Resolve the authenticated identity context for BeadHub requests.
 
     Priority order:
-    1) Cloud/wrapper proxy auth context (`X-BH-Auth` + `X-Project-ID`)
+    1) Trusted proxy/wrapper auth context (`X-BH-Auth` + `X-Project-ID`)
     2) Local aweb Bearer API key (default; BeadHub implements the aweb protocol)
-
-    See: beadhub-sot/source-of-truth/aweb-beadhub-integration.md
     """
     internal = parse_internal_auth_context(request)
     if internal is not None:
@@ -66,11 +64,9 @@ async def get_project_from_auth(request: Request, db: DatabaseInfra) -> str:
     """Resolve the authenticated project_id for BeadHub requests.
 
     Priority order:
-    1) Cloud/wrapper proxy auth context (`X-BH-Auth` + `X-Project-ID`)
+    1) Trusted proxy/wrapper auth context (`X-BH-Auth` + `X-Project-ID`)
     2) Local aweb auth (default; BeadHub implements the aweb protocol)
-
-    See: beadhub-sot/source-of-truth/aweb-beadhub-integration.md
     """
-    # 1) Cloud proxy headers (signed internal context)
+    # 1) Proxy headers (signed internal context)
     identity = await get_identity_from_auth(request, db)
     return identity.project_id

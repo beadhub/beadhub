@@ -1,7 +1,7 @@
 """Tests for tenant isolation in beads operations.
 
 CRITICAL: These tests verify that project A cannot see project B's issues,
-preventing data leakage in multi-tenant beadhub-cloud deployments.
+preventing data leakage in multi-tenant deployments.
 """
 
 import uuid

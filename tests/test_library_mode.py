@@ -267,7 +267,7 @@ async def test_library_mode_concurrent_requests(db_infra, redis_url):
 
 @pytest.mark.asyncio
 async def test_library_mode_can_disable_bootstrap_routes(db_infra, redis_url):
-    """Test that Cloud-style embeddings can disable bootstrap routes like /v1/init."""
+    """Test that proxy-style embeddings can disable bootstrap routes like /v1/init."""
     redis = await Redis.from_url(redis_url, decode_responses=True)
     try:
         await redis.ping()

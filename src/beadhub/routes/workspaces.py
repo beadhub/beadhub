@@ -753,7 +753,7 @@ async def list_workspaces(
     Deleted workspaces are excluded by default (use include_deleted=true to show).
 
     Tenant isolation:
-    - Always derived from authentication (project API key or Cloud internal auth bridge).
+    - Always derived from authentication (project API key or proxy-injected internal context).
 
     Args:
         limit: Maximum number of workspaces to return (default 50, max 200).

@@ -436,5 +436,3 @@ export BEADHUB_REDIS_URL=redis://localhost:6380/0
 - **PostgreSQL** for persistent state (bead claims, escalations, beads issues, audit log)
 - **pgdbm** for database access (shared pool pattern, schema-based isolation)
 - **bdh** for bead-level coordination (wraps `bd` with BeadHub integration)
-
-See the SOT docs in `beadhub-sot/` for detailed architecture documentation.

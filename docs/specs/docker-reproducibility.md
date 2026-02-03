@@ -13,7 +13,7 @@ Even with a lockfile (`pnpm-lock.yaml`, `uv.lock`), unpinned *toolchain* inputs 
 - A new `uv` release can change resolution/install behavior, default flags, or wheel handling.
 - If a user rebuilds an older tag for incident response, they can end up debugging “random” breakage unrelated to their changes.
 
-This affects both OSS users building images and Cloud build pipelines (less often, but still a source of surprise).
+This affects both OSS users building images and hosted build pipelines (less often, but still a source of surprise).
 
 ## Implementation
 

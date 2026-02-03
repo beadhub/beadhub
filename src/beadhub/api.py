@@ -128,7 +128,7 @@ def create_app(
         serve_frontend: If True, serve the dashboard frontend from /frontend/dist.
                         Set to False when embedding in another app that serves its own UI.
         enable_bootstrap_routes: If True, expose bootstrap routes such as `/v1/init`.
-                                 Cloud/wrapper deployments should set this to False.
+                                 Embedded/proxy deployments should set this to False.
 
     Library mode requires both db_infra and redis to be provided.
     Standalone mode requires neither (will create its own).

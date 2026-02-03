@@ -227,7 +227,7 @@ class TestWorkspaceDiscovery:
                             "workspace_id": init_2["workspace_id"],
                             "alias": "backend-bot",
                             "program": "codex-cli",
-                            "repo": "beadhub-cloud",
+                            "repo": "example-repo",
                             "branch": "develop",
                         },
                         headers=_auth_headers(init_2["api_key"]),

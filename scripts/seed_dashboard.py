@@ -18,7 +18,7 @@ import httpx
 PROJECTS = [
     {
         "project_slug": "beadhub-all",
-        "repos": ["beadhub", "beadhub-cloud", "beadhub-sot"],
+        "repos": ["beadhub", "aweb", "docs"],
     },
     {
         "project_slug": "acme-corp",
