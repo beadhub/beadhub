@@ -4,7 +4,7 @@ import { createContext, type ReactNode } from 'react'
  * Generic API context for dashboard pages.
  *
  * The dashboard package doesn't define specific API methods - each app
- * (OSS, Cloud) provides its own API client with its own types.
+ * (standalone, embedded) provides its own API client with its own types.
  *
  * Recommended typing pattern:
  *

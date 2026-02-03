@@ -1041,7 +1041,7 @@ export function PoliciesPage() {
               <div className="text-muted-foreground mt-1">
                 This dashboard is not permitted to create, activate, or reset
                 policy versions. Viewing is still available. To enable admin
-                actions, run the dashboard with a valid API key (or use the Cloud
+                actions, run the dashboard with a valid API key (or use an
                 embedded dashboard which injects auth headers).
               </div>
             </div>

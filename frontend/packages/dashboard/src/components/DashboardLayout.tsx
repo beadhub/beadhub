@@ -40,7 +40,7 @@ export function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Top Bar (Cloud-specific, optional) */}
+      {/* Top Bar (embedded-specific, optional) */}
       {topBar && (
         <header className="sticky top-0 z-40 border-b bg-background">
           {topBar}

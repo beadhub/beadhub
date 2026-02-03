@@ -7,7 +7,7 @@ export type { DashboardIdentity }
 const MAX_EVENTS = 100
 
 interface DashboardState {
-  // API routing ('' for OSS, '/api' for Cloud)
+  // API routing ('' for standalone, '/api' for embedded)
   apiBasePath: string
   setApiBasePath: (path: string) => void
 

@@ -22,7 +22,7 @@ export function DashboardMobileDrawer({
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Optional top content (e.g., project selector in Cloud) */}
+        {/* Optional top content (e.g., embedded project selector) */}
         {topContent && (
           <div className="border-b px-4 py-4">
             {topContent}

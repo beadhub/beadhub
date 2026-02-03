@@ -1,6 +1,6 @@
 // API client for BeadHub OSS
 // In standalone mode, all requests go to same origin
-// In embedded mode (Cloud), auth headers are injected by parent
+// In embedded mode, auth headers are injected by the parent gateway
 
 import type {
   ApiClient as DashboardApiClient,

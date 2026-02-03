@@ -27,7 +27,7 @@ function normalizeBasePath(basePath?: string): string {
 
 interface UseSSEOptions {
   /**
-   * Prefix for the API routes (e.g. '' for OSS, '/api' for Cloud).
+   * Prefix for the API routes (e.g. '' for standalone, '/api' for embedded).
    * When set, SSE connects to `${basePath}/v1/status/stream`.
    */
   basePath?: string
