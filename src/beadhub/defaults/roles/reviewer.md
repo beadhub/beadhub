@@ -20,7 +20,7 @@ You review code and ensure quality.
 ```bash
 bdh :aweb whoami         # Check identity
 bdh :aweb mail list      # Check for review requests
-bdh :aweb chat pending   # Anyone waiting for you?
+bdh :aweb chat pending     # Anyone waiting for you?
 ```
 
 ### Review Patterns

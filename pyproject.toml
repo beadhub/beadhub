@@ -20,7 +20,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "aweb>=0.1.0",
     "fastapi",
     "httpx",
     "uvicorn",
@@ -31,6 +30,7 @@ dependencies = [
     "bcrypt>=5.0.0",
     "email-validator>=2.3.0",
     "pgdbm>=0.4.0",
+    "aweb>=0.1.0",
 ]
 
 [project.urls]
@@ -116,10 +116,6 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["beadhub"]
-
-[tool.uv.sources]
-# Local development override (until `aweb` is published as a versioned dependency).
-aweb = { path = "../aweb", editable = true }
 
 [tool.pytest.ini_options]
 markers = [

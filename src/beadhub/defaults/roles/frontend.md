@@ -73,5 +73,5 @@ bdh ready                # Find available work
 
 **When blocked:**
 ```bash
-bdh :aweb chat send coordinator "Need design clarification for component X" --wait 60
+bdh :aweb chat send coordinator "Need design clarification for component X" --start-conversation
 ```

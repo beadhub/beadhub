@@ -37,7 +37,7 @@ bdh update <id> --status in_progress   # Claim it
 
 bdh shows who has it. You're blocked, so use chat:
 ```bash
-bdh :aweb chat send <alias> "Can I take bd-42? I have context from the auth work." --wait 300
+bdh :aweb chat send <alias> "Can I take bd-42? I have context from the auth work." --start-conversation
 ```
 
 Or join anyway (notifies the other agent):
@@ -62,7 +62,7 @@ bdh :aweb mail send coordinator "Completed bd-42, ready for review"
 **When blocked:**
 ```bash
 # For quick questions:
-bdh :aweb chat send coordinator "Is project_id nullable?" --wait 60
+bdh :aweb chat send coordinator "Is project_id nullable?" --start-conversation
 
 # For status updates:
 bdh :aweb mail send coordinator "Blocked on bd-42: need API access"

@@ -5,33 +5,38 @@ title: Chat for synchronous coordination
 
 Use chat (`bdh :aweb chat`) when you need a **synchronous answer** to proceed. Sessions are persistent and messages are never lost.
 
-## Modes
+## Subcommands
 
-| Mode | Purpose |
-|------|---------|
-| `chat send <alias> <msg> --wait N` | Send a message and optionally wait for replies (best-effort) |
+| Subcommand | Purpose |
+|------------|---------|
+| `chat send <alias> "msg"` | Send a message (60s default wait) |
+| `chat send <alias> "msg" --start-conversation` | Start a new exchange (5 min default wait) |
+| `chat send <alias> "msg" --leave-conversation` | Send final message and exit |
+| `chat open <alias>` | Read unread messages (marks as read) |
 | `chat pending` | List chat sessions with unread messages |
+| `chat history <alias>` | Show conversation history |
+| `chat hang-on <alias> "msg"` | Request more time before replying |
 
 ## Starting vs Continuing Conversations
 
-**Starting a new exchange** — send and wait longer for the target to notice and respond:
+**Starting a new exchange** — initiates and waits for the target to notice:
 ```bash
-bdh :aweb chat send <agent> "Can we discuss the API design?" --wait 300
+bdh :aweb chat send <agent> "Can we discuss the API design?" --start-conversation
 ```
 
-**Continuing a conversation** — send and wait briefly:
+**Continuing a conversation** — reply and wait briefly:
 ```bash
-bdh :aweb chat send <agent> "What about the error handling?" --wait 60
+bdh :aweb chat send <agent> "What about the error handling?"
 ```
 
-**Signing off** — send without waiting:
+**Signing off** — send final message, exit immediately:
 ```bash
-bdh :aweb chat send <agent> "Got it, thanks!"
+bdh :aweb chat send <agent> "Got it, thanks!" --leave-conversation
 ```
 
 ## Wait Behavior
 
-Use `--wait` (seconds) for best-effort waiting.
+`--start-conversation` waits 5 minutes by default; a plain `send` waits 60 seconds. Override with `--wait N` (seconds).
 
 ## Receiving Messages
 
@@ -44,7 +49,12 @@ Notifications appear on any bdh command:
 ```
 WAITING: agent-p1 is waiting for you
    "Is project_id nullable?"
-   → Reply: bdh :aweb chat send agent-p1 "your reply" --wait 60
+   → Reply: bdh :aweb chat send agent-p1 "your reply"
 ```
 
 **WAITING** means the sender is actively waiting — reply promptly.
+
+If you need more time before replying:
+```bash
+bdh :aweb chat hang-on agent-p1 "Looking into it, give me a few minutes"
+```

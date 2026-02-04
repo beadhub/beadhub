@@ -41,8 +41,8 @@ cd bdh && go test ./...    # Go tests
 
 - **Workspace**: An agent instance registered with a project (has alias, role, human name)
 - **Policy**: Project-level invariants + role playbooks that guide agent behavior
-- **Mail**: Async messages between workspaces (`bdh :mail --send`)
-- **Chat**: Sync conversations with wait/reply semantics (`bdh :chat`)
+- **Mail**: Async messages between workspaces (`bdh :aweb mail send <alias> "message"`)
+- **Chat**: Sync conversations with wait/reply semantics (`bdh :aweb chat send <alias> "message" --start-conversation`)
 - **Reservations**: File locks to prevent edit conflicts
 
 ## Architecture Notes
@@ -52,27 +52,18 @@ cd bdh && go test ./...    # Go tests
 - Policy defaults loaded from markdown files at startup (hot-reload via reset endpoint)
 - Auth uses per-project API keys (client sends `Authorization: Bearer ...`); bootstrap via `bdh :init` / `POST /v1/init`
 
+- ALWAYS do a code-reviewer run before closing a bead.
+
+
 
 <!-- BEADHUB:START -->
 ## BeadHub Coordination
 
-This project uses `bdh` for multi-agent coordination and issue tracking.
+This project uses `bdh` for multi-agent coordination. Run `bdh :policy` for instructions.
 
-**Start every session:**
 ```bash
-bdh :policy    # READ CAREFULLY and follow diligently, start here now
 bdh :status    # your identity + team status
-bdh ready      # find unblocked work
-bdh --help     # command reference
+bdh :policy    # READ AND FOLLOW
+bdh ready      # find work
 ```
-
-**Key rules:**
-- Use `bdh` (not `bdh`) so work is coordinated
-- Default to mail (`bdh :mail --send`); use chat (`bdh :chat`) when blocked
-- Respond immediately to WAITING notifications
-- It is crucial that you prioritize good communication, your goal is for the team to succeed. Do not ask for permission when you see that someone is waiting to chat, join the chat straight away. NEVER leave other agents hanging on the chat, make sure that all agree that the conversation is finished and then leave it explicitly with --leave-conversation.
 <!-- BEADHUB:END -->
-
-- ALWAYS do a code-reviewer run before closing a bead.
-
-
