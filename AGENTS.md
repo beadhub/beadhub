@@ -5,8 +5,7 @@ Multi-agent coordination server for AI coding assistants. Provides workspace reg
 ## Tech Stack
 
 - **Backend**: Python 3.12+, FastAPI, PostgreSQL (via pgdbm)
-- **CLI (bdh)**: Go 1.21+, Cobra
-- **Package Manager**: uv (Python), go modules (Go)
+- **Package Manager**: uv (Python)
 
 ## Project Structure
 
@@ -14,9 +13,6 @@ Multi-agent coordination server for AI coding assistants. Provides workspace reg
 src/beadhub/          # Python server
   routes/             # FastAPI endpoints
   defaults/           # Policy defaults (markdown files)
-bdh/                  # Go CLI wrapper
-  internal/commands/  # CLI commands
-  internal/client/    # HTTP client
 ```
 
 ## Development
@@ -26,15 +22,9 @@ bdh/                  # Go CLI wrapper
 uv run beadhub
 ```
 
-**Build CLI:**
-```bash
-make bdh
-```
-
 **Run tests:**
 ```bash
 uv run pytest              # Python tests
-cd bdh && go test ./...    # Go tests
 ```
 
 ## Key Concepts
@@ -47,7 +37,9 @@ cd bdh && go test ./...    # Go tests
 
 ## Architecture Notes
 
-- Server uses pgdbm for PostgreSQL with template-based table naming
+- Server uses pgdbm for PostgreSQL with template-based table naming. Make sure to use your pgdbm skill and to understand the test fixtures offered by pgdbm b
+efore makign or changing any tests.
+
 - CLI wraps `bdh` (beads) for issue tracking, adds coordination features
 - Policy defaults loaded from markdown files at startup (hot-reload via reset endpoint)
 - Auth uses per-project API keys (client sends `Authorization: Bearer ...`); bootstrap via `bdh :init` / `POST /v1/init`
