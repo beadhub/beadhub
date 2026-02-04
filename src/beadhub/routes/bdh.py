@@ -35,8 +35,9 @@ from beadhub.beads_sync import (
     is_valid_human_name,
     validate_issues_from_list,
 )
-from beadhub.routes.repos import canonicalize_git_url
+from beadhub.routes.repos import canonicalize_git_url, extract_repo_name
 from ..db import DatabaseInfra, get_db_infra
+from ..presence import get_workspace_id_by_alias
 from ..jsonl import JSONLParseError, parse_jsonl
 from ..notifications import process_notification_outbox, record_notification_intents
 from ..redis_client import get_redis
@@ -196,6 +197,137 @@ async def _delete_claim(
         UUID(workspace_id),
         bead_id,
     )
+
+
+async def ensure_repo(
+    db: DatabaseInfra,
+    project_id: UUID,
+    origin_url: str,
+) -> UUID:
+    """Ensure a repo exists for the given project and origin.
+
+    Returns the repo_id (existing or newly created).
+    """
+    canonical_origin = canonicalize_git_url(origin_url)
+    repo_name = extract_repo_name(canonical_origin)
+
+    server_db = db.get_manager("server")
+    # Also clear deleted_at to undelete soft-deleted repos when re-registered
+    result = await server_db.fetch_one(
+        """
+        INSERT INTO {{tables.repos}} (project_id, origin_url, canonical_origin, name)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (project_id, canonical_origin)
+        DO UPDATE SET origin_url = EXCLUDED.origin_url, deleted_at = NULL
+        RETURNING id
+        """,
+        project_id,
+        origin_url,
+        canonical_origin,
+        repo_name,
+    )
+    return result["id"]
+
+
+async def upsert_workspace(
+    db: DatabaseInfra,
+    workspace_id: str,
+    project_id: UUID,
+    repo_id: UUID,
+    alias: str,
+    human_name: str,
+    role: Optional[str] = None,
+    hostname: Optional[str] = None,
+    workspace_path: Optional[str] = None,
+) -> None:
+    """Upsert workspace into persistent workspaces table.
+
+    Creates or updates the workspace record. The workspace_id is the constant
+    identifier. project_id, repo_id, alias, hostname, and workspace_path are
+    immutable after creation (hostname/workspace_path can be set once if NULL).
+    Only human_name, role, current_branch, deleted_at, and last_seen_at can be updated.
+
+    last_seen_at is updated on every bdh command to track workspace activity.
+    """
+    server_db = db.get_manager("server")
+    await server_db.execute(
+        """
+        INSERT INTO {{tables.workspaces}} (workspace_id, project_id, repo_id, alias, human_name, role, hostname, workspace_path, last_seen_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        ON CONFLICT (workspace_id) DO UPDATE SET
+            human_name = EXCLUDED.human_name,
+            role = COALESCE(EXCLUDED.role, {{tables.workspaces}}.role),
+            hostname = COALESCE({{tables.workspaces}}.hostname, EXCLUDED.hostname),
+            workspace_path = COALESCE({{tables.workspaces}}.workspace_path, EXCLUDED.workspace_path),
+            last_seen_at = NOW(),
+            updated_at = NOW()
+        """,
+        workspace_id,
+        project_id,
+        repo_id,
+        alias,
+        human_name,
+        role,
+        hostname,
+        workspace_path,
+    )
+
+
+async def check_alias_collision(
+    db: DatabaseInfra,
+    redis: Redis,
+    project_id: UUID,
+    workspace_id: str,
+    alias: str,
+) -> Optional[str]:
+    """Check if alias is already used by another workspace within the same project.
+
+    Aliases are unique per project (not globally). Projects are tenant boundaries
+    with no cross-project communication, so per-project uniqueness is sufficient.
+
+    Returns:
+        The workspace_id using this alias if collision, None if available.
+    """
+    server_db = db.get_manager("server")
+
+    # Check workspaces table first (authoritative source)
+    row = await server_db.fetch_one(
+        """
+        SELECT workspace_id
+        FROM {{tables.workspaces}}
+        WHERE project_id = $1 AND alias = $2 AND workspace_id != $3 AND deleted_at IS NULL
+        LIMIT 1
+        """,
+        project_id,
+        alias,
+        UUID(workspace_id),
+    )
+    if row:
+        return str(row["workspace_id"])
+
+    # Also check bead_claims for another workspace with same alias
+    # (handles race conditions before workspace is persisted)
+    row = await server_db.fetch_one(
+        """
+        SELECT DISTINCT workspace_id
+        FROM {{tables.bead_claims}}
+        WHERE project_id = $1 AND alias = $2 AND workspace_id != $3
+        LIMIT 1
+        """,
+        project_id,
+        alias,
+        UUID(workspace_id),
+    )
+    if row:
+        return str(row["workspace_id"])
+
+    # Check Redis presence for another workspace with same alias
+    # Uses O(1) secondary index instead of SCAN
+    colliding_workspace = await get_workspace_id_by_alias(redis, str(project_id), alias)
+    if colliding_workspace and colliding_workspace != workspace_id:
+        return colliding_workspace
+
+    return None
 
 
 class CommandRequest(BaseModel):

@@ -34,6 +34,7 @@ from ..roles import (
     is_valid_role,
     normalize_role,
 )
+from .bdh import check_alias_collision, ensure_repo, upsert_workspace
 from .repos import canonicalize_git_url, extract_repo_name
 
 logger = logging.getLogger(__name__)
@@ -433,6 +434,249 @@ async def register_workspace(
         human_name=human_name,
         created=created,
     )
+
+
+# Heartbeat models and endpoint
+# IMPORTANT: This endpoint MUST be defined BEFORE /{workspace_id} to prevent
+# "heartbeat" from matching as a workspace_id parameter.
+
+
+class WorkspaceHeartbeatRequest(BaseModel):
+    workspace_id: str = Field(..., min_length=1)
+    alias: str = Field(..., min_length=1, max_length=64)
+    repo_origin: str = Field(..., min_length=1, max_length=512, description="Git remote origin URL")
+
+    role: Optional[str] = Field(
+        None,
+        max_length=ROLE_MAX_LENGTH,
+        description="Brief description of workspace purpose",
+    )
+    current_branch: Optional[str] = Field(None, max_length=255)
+    hostname: Optional[str] = Field(None, max_length=255)
+    workspace_path: Optional[str] = Field(None, max_length=1024)
+    human_name: Optional[str] = Field(None, max_length=64)
+
+    @field_validator("workspace_id")
+    @classmethod
+    def validate_workspace_id_field(cls, v: str) -> str:
+        try:
+            return validate_workspace_id(v)
+        except ValueError as e:
+            raise ValueError(str(e))
+
+    @field_validator("alias")
+    @classmethod
+    def validate_alias_field(cls, v: str) -> str:
+        if not is_valid_alias(v):
+            raise ValueError(
+                "Invalid alias: must be alphanumeric with hyphens/underscores, 1-64 chars"
+            )
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role_field(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if not is_valid_role(v):
+            raise ValueError(ROLE_ERROR_MESSAGE)
+        return normalize_role(v)
+
+
+class WorkspaceHeartbeatResponse(BaseModel):
+    ok: bool = True
+    workspace_id: str
+
+
+@router.post("/heartbeat", response_model=WorkspaceHeartbeatResponse)
+async def heartbeat(
+    payload: WorkspaceHeartbeatRequest,
+    request: Request,
+    redis: Redis = Depends(get_redis),
+    db: DatabaseInfra = Depends(get_db_infra),
+) -> WorkspaceHeartbeatResponse:
+    """
+    Refresh workspace presence, enforcing "presence is a cache of SQL".
+
+    Order of operations:
+    1) Ensure repo/workspace exists (SQL)
+    2) Update presence (Redis)
+
+    Note: If Redis is unavailable, SQL is still authoritative; presence updates
+    are best-effort and will converge once the client retries.
+    """
+    project_id = UUID(await get_project_from_auth(request, db))
+    settings = get_settings()
+
+    server_db = db.get_manager("server")
+
+    # Pre-check immutability to avoid leaking DB trigger errors as 500s.
+    existing = await server_db.fetch_one(
+        """
+        SELECT workspace_id, project_id, alias, repo_id, deleted_at
+        FROM {{tables.workspaces}}
+        WHERE workspace_id = $1
+        """,
+        UUID(payload.workspace_id),
+    )
+    if existing:
+        if existing.get("deleted_at") is not None:
+            raise HTTPException(
+                status_code=410,
+                detail="Workspace was deleted. Run 'bdh :init' to re-register.",
+            )
+        if existing.get("project_id") and existing["project_id"] != project_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Workspace {payload.workspace_id} does not belong to this project. "
+                "This may indicate a corrupted .beadhub file. Try running 'bdh :init' again.",
+            )
+        if existing.get("alias") and existing["alias"] != payload.alias:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Alias mismatch for workspace {payload.workspace_id} "
+                    f"(expected '{existing['alias']}', got '{payload.alias}'). "
+                    "Run 'bdh :init' to re-register."
+                ),
+            )
+
+    # Resolve repo_id without creating partial state in mismatch scenarios.
+    repo_id: UUID
+    if existing and existing.get("repo_id"):
+        repo_id = existing["repo_id"]
+
+        canonical_origin = canonicalize_git_url(payload.repo_origin)
+        repo_row = await server_db.fetch_one(
+            """
+            SELECT canonical_origin
+            FROM {{tables.repos}}
+            WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL
+            """,
+            repo_id,
+            project_id,
+        )
+        if not repo_row:
+            raise HTTPException(
+                status_code=410,
+                detail="Workspace repository was deleted. Run 'bdh :init' to re-register.",
+            )
+        if repo_row.get("canonical_origin") != canonical_origin:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Repo mismatch: workspace is registered with a different repository. "
+                    "This may indicate a corrupted .beadhub file. Run 'bdh :init' again."
+                ),
+            )
+    else:
+        colliding_workspace = await check_alias_collision(
+            db, redis, project_id, payload.workspace_id, payload.alias
+        )
+        if colliding_workspace:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Alias '{payload.alias}' is already used by another workspace in this project. "
+                "Please choose a different alias and run 'bdh :init' again.",
+            )
+
+        # Ensure repo exists for this project (normalizes to canonical_origin).
+        repo_id = await ensure_repo(db, project_id, payload.repo_origin)
+
+    # Upsert workspace record first (SQL), then update presence (Redis; best-effort).
+    try:
+        await upsert_workspace(
+            db,
+            workspace_id=payload.workspace_id,
+            project_id=project_id,
+            repo_id=repo_id,
+            alias=payload.alias,
+            human_name=payload.human_name or "",
+            role=payload.role,
+            hostname=payload.hostname,
+            workspace_path=payload.workspace_path,
+        )
+    except QueryError as e:
+        if isinstance(e.__cause__, asyncpg.exceptions.UniqueViolationError):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Alias '{payload.alias}' is already used by another workspace in this project. "
+                "Please choose a different alias and run 'bdh :init' again.",
+            ) from e
+        raise
+
+    if payload.current_branch is not None:
+        await server_db.execute(
+            """
+            UPDATE {{tables.workspaces}}
+            SET current_branch = $1, last_seen_at = NOW()
+            WHERE workspace_id = $2
+            """,
+            payload.current_branch,
+            UUID(payload.workspace_id),
+        )
+
+    project_row = await server_db.fetch_one(
+        "SELECT slug FROM {{tables.projects}} WHERE id = $1",
+        project_id,
+    )
+    project_slug = project_row["slug"] if project_row else None
+
+    try:
+        await update_agent_presence(
+            redis,
+            workspace_id=payload.workspace_id,
+            alias=payload.alias,
+            human_name=payload.human_name or "",
+            project_id=str(project_id),
+            project_slug=project_slug,
+            repo_id=str(repo_id),
+            program="bdh",
+            model=None,
+            current_branch=payload.current_branch,
+            role=payload.role,
+            ttl_seconds=settings.presence_ttl_seconds,
+        )
+    except Exception as e:
+        logger.warning(
+            "Heartbeat SQL upsert succeeded but presence update failed",
+            extra={
+                "workspace_id": payload.workspace_id,
+                "project_id": str(project_id),
+                "error": str(e),
+            },
+        )
+
+    # Track workspace for usage metering (Cloud mode only, best effort, non-blocking).
+    # In Cloud deployments, usage_service is injected into app.state by Cloud middleware.
+    usage_service = getattr(request.app.state, "usage_service", None)
+    if usage_service:
+        try:
+            await usage_service.track_workspace(
+                project_id=str(project_id),
+                workspace_id=payload.workspace_id,
+                presence_ttl_seconds=settings.presence_ttl_seconds,
+            )
+        except ValueError as e:
+            logger.warning(
+                "Usage metering track_workspace configuration error",
+                extra={
+                    "workspace_id": payload.workspace_id,
+                    "project_id": str(project_id),
+                    "error": str(e),
+                },
+            )
+        except Exception as e:
+            logger.warning(
+                "Usage metering track_workspace failed",
+                extra={
+                    "workspace_id": payload.workspace_id,
+                    "project_id": str(project_id),
+                    "error": str(e),
+                },
+            )
+
+    return WorkspaceHeartbeatResponse(ok=True, workspace_id=payload.workspace_id)
 
 
 class DeleteWorkspaceResponse(BaseModel):
