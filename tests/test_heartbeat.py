@@ -124,7 +124,7 @@ async def test_heartbeat_updates_presence(db_infra, init_workspace):
 
 @pytest.mark.asyncio
 async def test_heartbeat_wrong_project(db_infra, init_workspace):
-    """Heartbeat with workspace from a different project returns 400."""
+    """Heartbeat with mismatched workspace identity returns 403."""
     redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)
     try:
         await redis.ping()
@@ -164,8 +164,8 @@ async def test_heartbeat_wrong_project(db_infra, init_workspace):
                     headers=auth_headers(init_b["api_key"]),
                     json=heartbeat_payload(init_a),
                 )
-                assert resp.status_code == 400, resp.text
-                assert "does not belong to this project" in resp.json()["detail"]
+                assert resp.status_code == 403, resp.text
+                assert "workspace_id does not match API key identity" in resp.json()["detail"]
     finally:
         await redis.flushdb()
         await redis.aclose()
