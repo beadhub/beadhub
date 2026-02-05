@@ -304,6 +304,35 @@ async def _delete_claim(
         bead_id,
     )
 
+    # Update workspace focus to next active claim (or clear if none)
+    next_claim = await server_db.fetch_one(
+        """
+        SELECT apex_bead_id, apex_repo_name, apex_branch
+        FROM {{tables.bead_claims}}
+        WHERE project_id = $1 AND workspace_id = $2
+        ORDER BY claimed_at DESC
+        LIMIT 1
+        """,
+        UUID(project_id),
+        UUID(workspace_id),
+    )
+    await server_db.execute(
+        """
+        UPDATE {{tables.workspaces}}
+        SET focus_apex_bead_id = $1,
+            focus_apex_repo_name = $2,
+            focus_apex_branch = $3,
+            focus_updated_at = NOW(),
+            updated_at = NOW()
+        WHERE project_id = $4 AND workspace_id = $5
+        """,
+        next_claim["apex_bead_id"] if next_claim else None,
+        next_claim["apex_repo_name"] if next_claim else None,
+        next_claim["apex_branch"] if next_claim else None,
+        UUID(project_id),
+        UUID(workspace_id),
+    )
+
 
 async def ensure_repo(
     db: DatabaseInfra,
