@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BeadHub Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect fill='%23ff4500' width='32' height='32' rx='4'/><text x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' fill='white' font-family='monospace' font-size='14' font-weight='bold'>BH</text></svg>" />
+    <script>
+      // Apply dark mode before CSS renders to prevent flash
+      try {
+        const stored = localStorage.getItem('beadhub-dashboard-storage');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.state && typeof parsed.state.darkMode === 'boolean' && parsed.state.darkMode === true) {
+            document.documentElement.classList.add('dark');
+          }
+        }
+      } catch (e) {
+        // localStorage unavailable or corrupted - graceful degradation
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

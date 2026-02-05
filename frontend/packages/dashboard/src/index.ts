@@ -15,7 +15,7 @@ export type {
 } from './components'
 
 // Hooks
-export { useApi, useSSE, useStore } from './hooks'
+export { useApi, useSSE, useStore, STORAGE_KEY } from './hooks'
 export type { SSEEvent, DashboardIdentity } from './hooks'
 
 // Shared utils + types

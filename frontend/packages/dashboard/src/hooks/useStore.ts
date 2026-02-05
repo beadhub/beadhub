@@ -1,10 +1,12 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 import type { DashboardIdentity } from "../lib/api"
 import type { SSEEvent } from "./useSSE"
 
 export type { DashboardIdentity }
 
 const MAX_EVENTS = 100
+export const STORAGE_KEY = "beadhub-dashboard-storage"
 
 interface DashboardState {
   // API routing ('' for standalone, '/api' for embedded)
@@ -38,47 +40,62 @@ interface DashboardState {
   clearEvents: () => void
 }
 
-export const useStore = create<DashboardState>((set) => ({
-  apiBasePath: "",
-  setApiBasePath: (path) => set({ apiBasePath: path }),
+export const useStore = create<DashboardState>()(
+  persist(
+    (set) => ({
+      apiBasePath: "",
+      setApiBasePath: (path) => set({ apiBasePath: path }),
 
-  dashboardIdentity: null,
-  setDashboardIdentity: (identity) => set({ dashboardIdentity: identity }),
-  identityLoading: true,
-  setIdentityLoading: (loading) => set({ identityLoading: loading }),
-  identityError: null,
-  setIdentityError: (error) => set({ identityError: error }),
+      dashboardIdentity: null,
+      setDashboardIdentity: (identity) => set({ dashboardIdentity: identity }),
+      identityLoading: true,
+      setIdentityLoading: (loading) => set({ identityLoading: loading }),
+      identityError: null,
+      setIdentityError: (error) => set({ identityError: error }),
 
-  darkMode: false,
-  toggleDarkMode: () =>
-    set((state) => {
-      const newDarkMode = !state.darkMode
-      if (newDarkMode) {
-        document.documentElement.classList.add("dark")
-      } else {
-        document.documentElement.classList.remove("dark")
-      }
-      return { darkMode: newDarkMode }
-    }),
+      darkMode: false,
+      toggleDarkMode: () =>
+        set((state) => {
+          const newDarkMode = !state.darkMode
+          if (newDarkMode) {
+            document.documentElement.classList.add("dark")
+          } else {
+            document.documentElement.classList.remove("dark")
+          }
+          return { darkMode: newDarkMode }
+        }),
 
-  repoFilter: null,
-  setRepoFilter: (repo) => set({ repoFilter: repo }),
-  ownerFilter: null,
-  setOwnerFilter: (owner) => set({ ownerFilter: owner }),
-  createdByFilter: null,
-  setCreatedByFilter: (createdBy) => set({ createdByFilter: createdBy }),
-  clearFilters: () =>
-    set({
       repoFilter: null,
+      setRepoFilter: (repo) => set({ repoFilter: repo }),
       ownerFilter: null,
+      setOwnerFilter: (owner) => set({ ownerFilter: owner }),
       createdByFilter: null,
-    }),
+      setCreatedByFilter: (createdBy) => set({ createdByFilter: createdBy }),
+      clearFilters: () =>
+        set({
+          repoFilter: null,
+          ownerFilter: null,
+          createdByFilter: null,
+        }),
 
-  // Events
-  events: [],
-  addEvent: (event) =>
-    set((state) => ({
-      events: [event, ...state.events].slice(0, MAX_EVENTS),
-    })),
-  clearEvents: () => set({ events: [] }),
-}))
+      // Events
+      events: [],
+      addEvent: (event) =>
+        set((state) => ({
+          events: [event, ...state.events].slice(0, MAX_EVENTS),
+        })),
+      clearEvents: () => set({ events: [] }),
+    }),
+    {
+      name: STORAGE_KEY,
+      partialize: (state) => ({ darkMode: state.darkMode }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.darkMode) {
+          document.documentElement.classList.add("dark")
+        } else {
+          document.documentElement.classList.remove("dark")
+        }
+      },
+    }
+  )
+)
