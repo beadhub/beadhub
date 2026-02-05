@@ -413,6 +413,7 @@ async def beads_issues(
                labels,
                blocked_by,
                parent_id,
+               created_at,
                updated_at,
                synced_at
         FROM {{tables.beads_issues}}
@@ -509,6 +510,8 @@ async def beads_issues(
                 "labels": row["labels"],
                 "blocked_by": blocked_by,
                 "parent_id": parent_id,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
                 "current_reservation": current_reservation,
                 "reservations": reservations,
             }
@@ -587,7 +590,9 @@ async def get_issue_by_bead_id(
                    created_by,
                    labels,
                    blocked_by,
-                   parent_id
+                   parent_id,
+                   created_at,
+                   updated_at
             FROM {{tables.beads_issues}}
             WHERE project_id = $1 AND repo = $2 AND branch = $3 AND bead_id = $4
             """,
@@ -612,7 +617,9 @@ async def get_issue_by_bead_id(
                    created_by,
                    labels,
                    blocked_by,
-                   parent_id
+                   parent_id,
+                   created_at,
+                   updated_at
             FROM {{tables.beads_issues}}
             WHERE project_id = $1 AND bead_id = $2
             ORDER BY repo ASC, branch ASC
@@ -648,6 +655,8 @@ async def get_issue_by_bead_id(
         "labels": row["labels"],
         "blocked_by": blocked_by,
         "parent_id": parent_id,
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
         "current_reservation": None,
     }
 
