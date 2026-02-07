@@ -163,10 +163,13 @@ async def suggest_name_prefix(
         repo_id = str(result["repo_id"])
         project_slug = result["project_slug"]
 
-    # Query all existing aliases in this project to extract used name prefixes
-    existing = await server_db.fetch_all(
+    # Query aweb.agents (not server.workspaces) for used aliases.
+    # bootstrap_identity creates agents in aweb.agents, and an agent can exist
+    # there without a corresponding workspace in server.workspaces.
+    aweb_db = db.get_manager("aweb")
+    existing = await aweb_db.fetch_all(
         """
-        SELECT alias FROM {{tables.workspaces}}
+        SELECT alias FROM {{tables.agents}}
         WHERE project_id = $1
           AND deleted_at IS NULL
         ORDER BY alias
