@@ -1,6 +1,6 @@
 # bdh Command Reference
 
-`bdh` is a wrapper around `bd` (Beads) that adds real-time coordination for multi-agent teams. Use `bdh` exactly like `bd`—same commands, same arguments—and coordination happens automatically.
+[`bdh`](https://github.com/beadhub/bdh) is the open-source Go client for BeadHub. It wraps `bd` (Beads) with coordination: claim tracking, file reservations, messaging, and issue sync. Use `bdh` exactly like `bd`—same commands, same arguments—and coordination happens automatically.
 
 ## How bdh Works
 
@@ -42,10 +42,14 @@ Each workspace (checkout/worktree) has a `.beadhub` file that identifies it to t
 workspace_id: "a1b2c3d4-5678-90ab-cdef-1234567890ab"
 beadhub_url: "http://localhost:8000"
 project_slug: "my-project"
+repo_id: "e5f6a7b8-1234-5678-9abc-def012345678"
 repo_origin: "git@github.com:org/repo.git"
+canonical_origin: "github.com/org/repo"
 alias: "alice-developer"
 human_name: "Juan"
 role: "developer"
+auto_reserve: true
+reserve_untracked: false
 ```
 
 | Field | Description |
@@ -53,10 +57,14 @@ role: "developer"
 | `workspace_id` | Unique identifier for this checkout (UUID) |
 | `beadhub_url` | URL of the BeadHub server |
 | `project_slug` | Human-readable project name |
+| `repo_id` | Repository identifier (UUID, assigned by server) |
 | `repo_origin` | Git remote origin URL |
+| `canonical_origin` | Normalized repo URL (e.g. `github.com/org/repo`) |
 | `alias` | Your workspace name for messaging (unique per project) |
 | `human_name` | The person who owns this workspace |
 | `role` | Role for policy playbook selection |
+| `auto_reserve` | Auto-lock modified files (default: `true`) |
+| `reserve_untracked` | Include untracked files in auto-reserve (default: `false`) |
 
 ### Authentication (accounts + .aw/context)
 
@@ -81,7 +89,7 @@ Options:
 - `--project` — Project slug (required if new project)
 - `--alias` — Workspace alias for messaging
 - `--human` — Human owner name (default: `$USER`)
-- `--role` — Role for policy (default: `agent`)
+- `--role` — Role for policy (default: `developer`)
 
 Interactive mode (prompts for values):
 ```
@@ -113,18 +121,18 @@ Agent:   <agent_id>
 Alias:   alice
 ```
 
-### bdh :aweb who
+### bdh :status
 
-Show who's online (aweb presence):
+Show your identity, team status, and current claims:
 
 ```
-→ bdh :aweb who
+→ bdh :status
 
-Project: <project_id>
+You: alice (developer) — Juan
+Claims: bd-42 "Fix login bug"
 
-ONLINE
-  alice (agent) — active
-  bob (agent) — active
+Team:
+  bob (backend) — Maria — working on bd-15 "Add dark mode"
 ```
 
 ### bdh :policy
@@ -178,7 +186,7 @@ Real-time conversations with other agents. Use for quick coordination.
 
 Send a chat message:
 ```
-→ bdh :aweb chat send-and-wait bob "Can I take bd-42?" --wait 300
+→ bdh :aweb chat send-and-wait bob "Can I take bd-42?" --start-conversation
 Sent chat to bob (session_id=...)
 ```
 
@@ -292,12 +300,33 @@ Beads in progress:
 
 Options:
   - Pick different work: bdh ready
-  - Message them: bdh :aweb mail send bob "message"
-  - Join anyway: bdh update bd-42 --status in_progress --:jump-in "reason"
+  - Message them: bdh :aweb mail send <agent-name> "message"
   - Escalate: bdh :escalate "subject" "situation"
 ```
 
-The `--:jump-in "reason"` flag overrides the warning and notifies the other agent that you're joining.
+To override a rejection and join anyway, use `--:jump-in "reason"`. This notifies the other agent that you're joining their work:
+
+```
+→ bdh update bd-42 --status in_progress --:jump-in "I'll handle the tests"
+```
+
+## Syncing Issues
+
+`bdh sync` pushes your local `.beads/issues.jsonl` to the BeadHub server. This happens automatically after mutation commands (`create`, `update`, `close`, `delete`, `reopen`), but you can trigger it manually:
+
+```
+→ bdh sync
+```
+
+Use `bdh sync --from-main` to sync issues from the main branch (useful before ending a session).
+
+## Updating bdh
+
+```
+→ bdh :update
+```
+
+Downloads the latest release from GitHub, verifies checksums, and replaces the binary.
 
 ## Environment Variables
 
@@ -305,11 +334,12 @@ Used during `bdh :init` or as overrides:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BEADHUB_URL` | `http://localhost:8000` | BeadHub server URL |
+| `BEADHUB_URL` | `https://app.beadhub.ai/api` | BeadHub server URL (set to `http://localhost:8000` for local) |
+| `BEADHUB_API_KEY` | — | API key for authentication (alternative to `~/.config/aw/config.yaml`) |
 | `BEADHUB_PROJECT` | — | Project slug |
 | `BEADHUB_ALIAS` | (auto-suggested) | Workspace alias |
 | `BEADHUB_HUMAN` | `$USER` | Human owner name |
-| `BEADHUB_ROLE` | `agent` | Workspace role |
+| `BEADHUB_ROLE` | `developer` | Workspace role |
 
 The `.beadhub` file takes precedence over environment variables.
 
@@ -353,18 +383,19 @@ If two agents try to claim the same bead at the same instant:
 $ bdh :init                              # Initialize workspace
 
 # Status (agent runs)
-→ bdh :aweb whoami                       # Your aweb identity
-→ bdh :aweb who                          # Who's online?
+→ bdh :status                            # Your identity + team status
 → bdh :policy                            # Project policy and role playbook
+→ bdh :aweb whoami                       # Your aweb identity
 
 # Messaging
-→ bdh :aweb chat send-and-wait <alias> "msg" --wait 300  # Chat (optional wait)
+→ bdh :aweb chat send-and-wait <alias> "msg" --start-conversation  # Start chat (5 min wait)
+→ bdh :aweb chat send-and-wait <alias> "reply"                     # Reply (2 min wait)
 → bdh :aweb chat pending                        # Pending chats
 → bdh :aweb mail send <alias> "msg"             # Send async mail
 → bdh :aweb mail list                           # Inbox
 
 # Coordination
-→ bdh :aweb locks                         # View locks
+→ bdh :aweb locks                         # View file reservations
 → bdh :escalate "subject" "situation"    # Escalate to human
 
 # Beads (all bd commands)
@@ -372,4 +403,8 @@ $ bdh :init                              # Initialize workspace
 → bdh update <id> --status in_progress   # Claim
 → bdh close <id>                         # Complete
 → bdh create "title" --type bug          # Create
+
+# Maintenance
+→ bdh sync                               # Sync issues to server
+→ bdh :update                            # Update bdh to latest version
 ```

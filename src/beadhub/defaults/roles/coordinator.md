@@ -19,8 +19,7 @@ You own the overall project outcome.
 ### Daily Loop
 
 ```bash
-bdh :aweb whoami         # Your identity
-bdh :aweb who            # Who's online
+bdh :status              # Your identity + team status
 bdh ready                # Unblocked work
 bdh :aweb mail list      # Check mail
 bdh :aweb mail send <agent> "..."  # Broadcast updates

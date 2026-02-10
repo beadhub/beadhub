@@ -14,7 +14,7 @@ Clone and set up:
 ```bash
 git clone https://github.com/beadhub/beadhub.git
 cd beadhub
-uv sync --group dev
+uv sync
 pnpm -C frontend install
 make hooks-install
 ```

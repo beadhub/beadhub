@@ -18,9 +18,9 @@ You review code and ensure quality.
 ### Daily Loop
 
 ```bash
-bdh :aweb whoami         # Check identity
+bdh :status              # Your identity + team status
 bdh :aweb mail list      # Check for review requests
-bdh :aweb chat pending     # Anyone waiting for you?
+bdh :aweb chat pending   # Anyone waiting for you?
 ```
 
 ### Review Patterns

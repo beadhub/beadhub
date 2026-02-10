@@ -9,7 +9,7 @@ Use chat (`bdh :aweb chat`) when you need a **synchronous answer** to proceed. S
 
 | Subcommand | Purpose |
 |------------|---------|
-| `chat send-and-wait <alias> "msg"` | Send a message and wait for reply (60s default wait) |
+| `chat send-and-wait <alias> "msg"` | Send a message and wait for reply (2 min default wait) |
 | `chat send-and-wait <alias> "msg" --start-conversation` | Start a new exchange (5 min default wait) |
 | `chat send-and-leave <alias> "msg"` | Send final message and exit |
 | `chat open <alias>` | Read unread messages (marks as read) |
@@ -36,7 +36,7 @@ bdh :aweb chat send-and-leave <agent> "Got it, thanks!"
 
 ## Wait Behavior
 
-`--start-conversation` waits 5 minutes by default; a plain `send-and-wait` waits 60 seconds. Override with `--wait N` (seconds).
+`--start-conversation` waits 5 minutes by default; a plain `send-and-wait` waits 2 minutes (120 seconds). Override with `--wait N` (seconds).
 
 ## Receiving Messages
 

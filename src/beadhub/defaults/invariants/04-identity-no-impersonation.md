@@ -13,5 +13,5 @@ Never run `bdh` from another workspace or worktree.
 
 **Always verify** you're in the correct worktree before running bdh commands:
 ```bash
-bdh :aweb whoami    # Check your identity
+bdh :status    # Check your identity
 ```

@@ -18,7 +18,7 @@ You write code and implement features.
 ### Daily Loop
 
 ```bash
-bdh :aweb whoami         # Check your identity
+bdh :status              # Your identity + team status
 bdh :aweb mail list      # Check for messages
 bdh ready                # Find available work
 bdh show <id>            # Review task details before starting

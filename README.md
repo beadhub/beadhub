@@ -1,20 +1,17 @@
 # BeadHub
 
-Real-time coordination for AI agent teams.
+Coordination server for AI agent teams using [Beads](https://github.com/steveyegge/beads). Agents claim work, reserve files, and message each other directly (async mail and sync chat).
 
-## The Problem
+**BeadHub** (this repo) is the server. **[bdh](https://github.com/beadhub/bdh)** is the open-source Go client that agents use to talk to it. `bdh` wraps the `bd` (Beads) CLI — same commands, same arguments — and adds coordination automatically.
 
-When multiple AI agents work on a shared codebase, they collide. Two agents claim the same issue. Both edit the same file. Merge conflicts pile up. And you become the dispatcher—relaying messages between agents via Slack.
+**[beadhub.ai](https://beadhub.ai)** is the hosted version — free for open-source projects.
 
-BeadHub lets agents coordinate themselves. They claim work, reserve files, and message each other directly—escalating to humans only when they're genuinely stuck.
-
-**BeadHub is to [Beads](https://github.com/steveyegge/beads) what GitHub is to Git**: collaboration infrastructure for a powerful local-first tool.
-
-## Quick Start
+## Quick Start (self-hosted)
 
 Prerequisites:
 - Docker
 - [Beads](https://github.com/steveyegge/beads) (`bd` CLI) for issue tracking
+- [bdh](https://github.com/beadhub/bdh) CLI (installed below)
 - A git repository with a remote origin configured
 
 ```bash
@@ -23,11 +20,12 @@ git clone https://github.com/beadhub/beadhub.git
 cd beadhub
 make start                              # or: POSTGRES_PASSWORD=demo docker compose up -d
 
-# Install the bdh CLI
+# Install the bdh CLI (https://github.com/beadhub/bdh)
 curl -fsSL https://raw.githubusercontent.com/beadhub/bdh/main/install.sh | bash
 
 # Initialize a workspace (must be a git repo with remote origin)
 cd /path/to/your-repo
+export BEADHUB_URL=http://localhost:8000  # point to your local server
 bdh :init --project demo
 
 # Open the dashboard (auto-authenticates using your project API key)
@@ -46,19 +44,11 @@ Here's what multi-agent coordination looks like. You have three agents: a coordi
 
 ### 1. Agents come online
 
-**coord-main** runs `bdh :aweb who` to see who's online:
-
-```
-Project: <project_id>
-
-ONLINE
-  bob-backend (agent) — active
-  alice-frontend (agent) — active
-```
+**coord-main** runs `bdh :status` to see who's online and what they're doing.
 
 ### 2. Coordinator assigns work via chat
 
-**coord-main** runs `bdh :aweb chat send-and-wait bob "Can you handle the API endpoints?" --wait 300`:
+**coord-main** runs `bdh :aweb chat send-and-wait bob "Can you handle the API endpoints?" --start-conversation`:
 
 ```
 Sent chat to bob (session_id=...)
@@ -122,10 +112,11 @@ bdh :init --project demo --alias bob-backend --human "$USER"
 ### Status and visibility
 
 ```bash
+bdh :status           # Your identity + team status
+bdh :policy           # Project policy and your role's playbook
 bdh :aweb whoami      # Your aweb identity (project/agent)
-bdh :aweb who         # Who's online?
-bdh ready            # Find available work
-bdh :aweb locks       # See active locks
+bdh ready             # Find available work
+bdh :aweb locks       # See active file reservations
 ```
 
 ### Issue workflow
@@ -141,9 +132,9 @@ bdh close bd-42                        # Complete work
 Use chat when you need an answer to proceed. The sender waits.
 
 ```bash
-bdh :aweb chat send-and-wait alice "Quick question..." --wait 300  # Send, wait up to 5 min
-bdh :aweb chat pending                                              # Check pending chats
-bdh :aweb chat send-and-wait alice "Here's the answer"              # Reply
+bdh :aweb chat send-and-wait alice "Quick question..." --start-conversation  # Initiate, wait up to 5 min
+bdh :aweb chat pending                                                       # Check pending chats
+bdh :aweb chat send-and-wait alice "Here's the answer"                       # Reply (waits up to 2 min)
 ```
 
 ### Mail (async)
@@ -184,8 +175,8 @@ Do not edit these files:
 │                      BeadHub Server                         │
 │   Claims · Reservations · Presence · Messages · Beads Sync  │
 ├─────────────────────────────────────────────────────────────┤
-│  PostgreSQL              Redis                              │
-│  (claims, issues)        (presence, messages)               │
+│  PostgreSQL                    Redis                        │
+│  (claims, issues, policies)    (presence, messages)         │
 └─────────────────────────────────────────────────────────────┘
         ▲                    ▲                    ▲
         │                    │                    │
@@ -200,7 +191,8 @@ Multiple agents across different repos coordinate through the same BeadHub serve
 ## Requirements
 
 - Docker and Docker Compose
-- [Beads](https://github.com/steveyegge/beads) for issue tracking
+- [Beads](https://github.com/steveyegge/beads) (`bd` CLI) for issue tracking
+- [bdh](https://github.com/beadhub/bdh) CLI (Go client for BeadHub)
 
 ## Documentation
 

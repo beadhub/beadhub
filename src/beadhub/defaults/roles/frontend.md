@@ -50,7 +50,7 @@ pnpm playwright test --debug   # Debug mode
 ### Daily Loop
 
 ```bash
-bdh :aweb whoami         # Check identity
+bdh :status              # Your identity + team status
 bdh :aweb mail list      # Check for messages
 bdh ready                # Find available work
 ```
