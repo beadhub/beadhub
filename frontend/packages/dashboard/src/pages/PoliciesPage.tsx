@@ -52,7 +52,6 @@ import {
   type RolePlaybook,
   type CreatePolicyResponse,
 } from "../lib/api"
-import { useStore } from "../hooks/useStore"
 import { cn } from "../lib/utils"
 import { Markdown } from "../components/Markdown"
 
@@ -865,7 +864,6 @@ function EditPolicyDialog({
 
 export function PoliciesPage() {
   const api = useApi<ApiClient>()
-  const { dashboardIdentity } = useStore()
   const queryClient = useQueryClient()
   const [readOnlyMode, setReadOnlyMode] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -885,7 +883,6 @@ export function PoliciesPage() {
   } = useQuery({
     queryKey: ["policy"],
     queryFn: () => api.getActivePolicy(),
-    enabled: !!dashboardIdentity,
     refetchInterval: 30000,
   })
 
@@ -896,7 +893,6 @@ export function PoliciesPage() {
   } = useQuery({
     queryKey: ["policy-history"],
     queryFn: () => api.getPolicyHistory(10),
-    enabled: !!dashboardIdentity,
   })
 
   const activateMutation = useMutation({
@@ -956,25 +952,6 @@ export function PoliciesPage() {
 
   const handleDismissCreationSuccess = () => {
     setNewlyCreatedPolicy(null)
-  }
-
-  if (!dashboardIdentity) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">Policies</h1>
-            <p className="text-sm text-muted-foreground">Project policy configuration</p>
-          </div>
-        </div>
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Shield className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">No workspace available. Register a workspace to view policies.</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
   }
 
   return (
