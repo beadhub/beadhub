@@ -34,7 +34,6 @@ class TestStandaloneLifespanCleanup:
             patch("beadhub.api.get_settings") as mock_settings,
             patch("beadhub.api.configure_logging"),
         ):
-
             mock_settings.return_value.redis_url = "redis://localhost:6379"
             mock_settings.return_value.log_level = "info"
             mock_db_infra.initialize = AsyncMock(side_effect=Exception("DB connection failed"))
@@ -74,7 +73,6 @@ class TestStandaloneLifespanCleanup:
             patch("beadhub.api.get_settings") as mock_settings,
             patch("beadhub.api.configure_logging"),
         ):
-
             mock_settings.return_value.redis_url = "redis://localhost:6379"
             mock_settings.return_value.log_level = "info"
             mock_db_infra.initialize = AsyncMock(side_effect=Exception("DB connection failed"))
@@ -121,7 +119,6 @@ class TestStandaloneLifespanCleanup:
             patch("beadhub.api.get_settings") as mock_settings,
             patch("beadhub.api.configure_logging"),
         ):
-
             mock_settings.return_value.redis_url = "redis://localhost:6379"
             mock_settings.return_value.log_level = "info"
             mock_db_infra.initialize = AsyncMock()
@@ -165,7 +162,6 @@ class TestStandaloneLifespanCleanup:
             patch("beadhub.api.get_settings") as mock_settings,
             patch("beadhub.api.configure_logging"),
         ):
-
             mock_settings.return_value.redis_url = "redis://localhost:6379"
             mock_settings.return_value.log_level = "info"
             mock_db_infra.initialize = AsyncMock()

@@ -6,6 +6,12 @@ This project follows a pragmatic, OSS-friendly changelog format (similar to Keep
 
 ## Unreleased
 
+## 0.2.2 — 2026-02-11
+
+### Changed
+- README: agent-first onboarding with "paste to your agent" setup blocks for managed and self-hosted
+- Added project visibility column to initial migration
+
 ## 0.2.1 — 2026-02-10
 
 ### Fixed

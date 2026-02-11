@@ -1945,7 +1945,7 @@ async def test_beads_issues_pagination_basic(db_infra):
                                 "status": "open",
                                 "issue_type": "task",
                                 "priority": 2,
-                                "updated_at": f"2025-01-0{i+1}T00:00:00Z",
+                                "updated_at": f"2025-01-0{i + 1}T00:00:00Z",
                             }
                             for i in range(5)
                         ],
@@ -2160,7 +2160,7 @@ async def test_beads_issues_pagination_exact_boundary(db_infra):
                                 "title": f"Exact {i}",
                                 "status": "open",
                                 "priority": 2,
-                                "updated_at": f"2025-01-0{i+1}T00:00:00Z",
+                                "updated_at": f"2025-01-0{i + 1}T00:00:00Z",
                             }
                             for i in range(3)
                         ],

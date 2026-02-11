@@ -107,7 +107,7 @@ class DatabaseInfra:
     def get_manager(self, name: str = "server") -> AsyncDatabaseManager:
         if not self._initialized:
             raise RuntimeError(
-                "DatabaseInfra is not initialized. " "Call 'await db_infra.initialize()' first."
+                "DatabaseInfra is not initialized. Call 'await db_infra.initialize()' first."
             )
         manager = self._managers.get(name)
         if manager is None:

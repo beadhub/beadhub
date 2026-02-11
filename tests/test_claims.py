@@ -351,7 +351,7 @@ async def test_claims_pagination(db_infra):
                         uuid.UUID(init["workspace_id"]),
                         "claude-main",
                         "Juan",
-                        f"bd-{i+1}",
+                        f"bd-{i + 1}",
                         claim_time,
                     )
 

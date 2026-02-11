@@ -163,7 +163,7 @@ def status(
         typer.echo("Agents:")
         for agent in agents:
             typer.echo(
-                f"  {agent.get('alias', '?'):15} status={agent.get('status','?'):8} "
+                f"  {agent.get('alias', '?'):15} status={agent.get('status', '?'):8} "
                 f"issue={agent.get('current_issue') or '-'}"
             )
     else:
@@ -205,7 +205,7 @@ def escalations_list(
 
     for esc in data.get("escalations", []):
         typer.echo(
-            f"{esc['escalation_id']}  {esc['status']:9}  " f"{esc['alias']:15}  {esc['subject']}"
+            f"{esc['escalation_id']}  {esc['status']:9}  {esc['alias']:15}  {esc['subject']}"
         )
 
 
@@ -266,7 +266,7 @@ def beads_issues(
 
     for issue in data.get("issues", []):
         typer.echo(
-            f"{issue['bead_id']}  P{issue['priority']}  " f"{issue['status']:10}  {issue['title']}"
+            f"{issue['bead_id']}  P{issue['priority']}  {issue['status']:10}  {issue['title']}"
         )
 
 
