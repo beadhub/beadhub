@@ -5,11 +5,30 @@ from typing import Any, Optional, Protocol
 
 from fastapi import HTTPException, Request
 
-from beadhub.aweb_introspection import get_identity_from_auth
+from beadhub.aweb_introspection import AuthIdentity, get_identity_from_auth
 
 
 class DatabaseLike(Protocol):
     def get_manager(self, name: str = "server") -> Any: ...
+
+
+def enforce_actor_binding(
+    identity: AuthIdentity,
+    workspace_id: str,
+    detail: str = "workspace_id does not match API key identity",
+) -> None:
+    """Reject requests where the caller's API key identity doesn't match the workspace.
+
+    In bearer mode (direct API key), agent_id is the workspace UUID and must match.
+    In proxy mode (Cloud), actor_id is a Cloud service UUID — the Cloud wrapper
+    handles actor binding, so this check is skipped.
+    """
+    if (
+        identity.auth_mode == "bearer"
+        and identity.agent_id is not None
+        and identity.agent_id != workspace_id
+    ):
+        raise HTTPException(status_code=403, detail=detail)
 
 
 def validate_workspace_id(workspace_id: str) -> str:
@@ -90,12 +109,7 @@ async def verify_workspace_access(
             detail="Workspace not found or does not belong to your project",
         )
 
-    # If auth provides an agent/actor identity, workspace-scoped operations must use it.
-    # This is enforced after existence checks so ghost workspaces still return 404/410.
-    if identity.agent_id is not None and identity.agent_id != workspace_id:
-        raise HTTPException(
-            status_code=403,
-            detail="workspace_id does not match API key identity",
-        )
+    # Enforced after existence checks so ghost workspaces still return 404/410.
+    enforce_actor_binding(identity, workspace_id)
 
     return project_id

@@ -15,7 +15,7 @@ from pgdbm.errors import QueryError
 from pydantic import BaseModel, Field, field_validator
 from redis.asyncio import Redis
 
-from beadhub.auth import validate_workspace_id
+from beadhub.auth import enforce_actor_binding, validate_workspace_id
 from beadhub.aweb_context import resolve_aweb_identity
 from beadhub.aweb_introspection import get_identity_from_auth, get_project_from_auth
 
@@ -530,8 +530,7 @@ async def heartbeat(
     are best-effort and will converge once the client retries.
     """
     identity = await get_identity_from_auth(request, db)
-    if identity.agent_id is not None and identity.agent_id != payload.workspace_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, payload.workspace_id)
     project_id = UUID(identity.project_id)
     settings = get_settings()
 
@@ -849,8 +848,7 @@ async def restore_workspace(
         raise HTTPException(status_code=422, detail=str(e))
 
     identity = await get_identity_from_auth(request, db)
-    if identity.agent_id is not None and identity.agent_id != validated_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, validated_id)
     project_id = identity.project_id
 
     server_db = db.get_manager("server")

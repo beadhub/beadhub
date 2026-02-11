@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
-from beadhub.auth import validate_workspace_id
+from beadhub.auth import enforce_actor_binding, validate_workspace_id
 from beadhub.aweb_introspection import get_identity_from_auth
 
 from ..beads_sync import is_valid_alias
@@ -100,8 +100,7 @@ async def subscribe(
     db = db_infra.get_manager("server")
     identity = await get_identity_from_auth(request, db_infra)
     project_id = identity.project_id
-    if identity.agent_id is not None and identity.agent_id != payload.workspace_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, payload.workspace_id)
 
     # Validate bead_id format
     if not _BEAD_ID_PATTERN.match(payload.bead_id):
@@ -191,8 +190,7 @@ async def list_subscriptions(
         workspace_id = validate_workspace_id(workspace_id)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    if identity.agent_id is not None and identity.agent_id != workspace_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, workspace_id)
 
     db = db_infra.get_manager("server")
 
@@ -259,8 +257,7 @@ async def unsubscribe(
         workspace_id = validate_workspace_id(workspace_id)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    if identity.agent_id is not None and identity.agent_id != workspace_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, workspace_id)
 
     db = db_infra.get_manager("server")
 

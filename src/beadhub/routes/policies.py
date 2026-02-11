@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from pgdbm import AsyncDatabaseManager
 from pydantic import BaseModel, Field
 
-from beadhub.auth import validate_workspace_id
+from beadhub.auth import enforce_actor_binding, validate_workspace_id
 from beadhub.aweb_introspection import get_identity_from_auth, get_project_from_auth
 
 from ..db import DatabaseInfra, get_db_infra
@@ -559,11 +559,11 @@ async def create_policy_endpoint(
             created_by_workspace_id = validate_workspace_id(payload.created_by_workspace_id)
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
-        if identity.agent_id is not None and identity.agent_id != created_by_workspace_id:
-            raise HTTPException(
-                status_code=403,
-                detail="created_by_workspace_id does not match API key identity",
-            )
+        enforce_actor_binding(
+            identity,
+            created_by_workspace_id,
+            detail="created_by_workspace_id does not match API key identity",
+        )
 
         workspace = await server_db.fetch_one(
             """

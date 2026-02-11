@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from redis.asyncio import Redis
 
-from beadhub.auth import validate_workspace_id
+from beadhub.auth import enforce_actor_binding, validate_workspace_id
 from beadhub.aweb_context import resolve_aweb_identity
 from beadhub.aweb_introspection import get_identity_from_auth
 from beadhub.beads_sync import (
@@ -544,9 +544,7 @@ async def command(
     identity = await get_identity_from_auth(request, db_infra)
     project_id = identity.project_id
 
-    # If auth provides an agent identity, it must match the claimed workspace_id.
-    if identity.agent_id is not None and identity.agent_id != payload.workspace_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, payload.workspace_id)
 
     # Ensure workspace exists, belongs to project, and is not deleted (410).
     await _ensure_workspace_alive_or_410(
@@ -650,8 +648,7 @@ async def sync(
     identity = await get_identity_from_auth(request, db_infra)
     project_id = identity.project_id
 
-    if identity.agent_id is not None and identity.agent_id != payload.workspace_id:
-        raise HTTPException(status_code=403, detail="workspace_id does not match API key identity")
+    enforce_actor_binding(identity, payload.workspace_id)
 
     await _ensure_workspace_alive_or_410(
         db_infra, project_id=project_id, workspace_id=payload.workspace_id
