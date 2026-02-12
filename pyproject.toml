@@ -1,6 +1,6 @@
 [project]
 name = "beadhub"
-version = "0.2.3"
+version = "0.2.4"
 description = "Real-time coordination layer for AI agent teams. File locking, messaging, escalations, and Beads integration."
 readme = "README.md"
 license = "MIT"

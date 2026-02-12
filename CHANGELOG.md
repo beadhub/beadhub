@@ -6,6 +6,11 @@ This project follows a pragmatic, OSS-friendly changelog format (similar to Keep
 
 ## Unreleased
 
+## 0.2.4 — 2026-02-11
+
+### Fixed
+- Reverted in-place edit of 001_initial.sql; visibility column now added via additive 002 migration (safe for existing databases)
+
 ## 0.2.3 — 2026-02-11
 
 ### Fixed
