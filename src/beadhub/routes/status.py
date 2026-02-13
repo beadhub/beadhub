@@ -15,6 +15,7 @@ from beadhub.aweb_introspection import get_project_from_auth
 
 from ..db import DatabaseInfra, get_db_infra
 from ..events import stream_events_multi
+from ..internal_auth import is_public_reader
 from ..presence import (
     list_agent_presences_by_workspace_ids,
 )
@@ -233,6 +234,7 @@ async def status(
     - repo_id: Show aggregated status for all workspaces in a repo (UUID)
     """
     project_id = await get_project_from_auth(request, db_infra)
+    public_reader = is_public_reader(request)
     project_uuid = uuid.UUID(project_id)
     server_db = db_infra.get_manager("server")
 
@@ -319,6 +321,8 @@ async def status(
         project_uuid,
     )
     escalations_pending = int(row["count"]) if row and "count" in row else 0
+    if public_reader:
+        escalations_pending = 0
 
     # Claims - active bead claims with claimant count for conflict detection
     if uuid_workspace_ids:
@@ -357,7 +361,7 @@ async def status(
             "bead_id": r["bead_id"],
             "workspace_id": str(r["workspace_id"]),
             "alias": r["alias"],
-            "human_name": r["human_name"],
+            "human_name": "" if public_reader else r["human_name"],
             "claimed_at": r["claimed_at"].isoformat(),
             "claimant_count": r["claimant_count"],
             "title": r["title"],
@@ -382,7 +386,7 @@ async def status(
             {
                 "workspace_id": ws_id,
                 "alias": presence.get("alias", ""),
-                "member": presence.get("member_email") or None,
+                "member": None if public_reader else (presence.get("member_email") or None),
                 "program": presence.get("program") or None,
                 "role": presence.get("role") or None,
                 "status": presence.get("status") or "unknown",
@@ -402,7 +406,7 @@ async def status(
             seen_beads[bead_id].append(
                 {
                     "alias": claim["alias"],
-                    "human_name": claim["human_name"],
+                    "human_name": "" if public_reader else claim["human_name"],
                     "workspace_id": claim["workspace_id"],
                 }
             )
@@ -483,6 +487,7 @@ async def status_stream(
         ```
     """
     effective_project_id = await get_project_from_auth(request, db_infra)
+    public_reader = is_public_reader(request)
 
     # Determine which workspace_ids to subscribe to
     workspace_ids: List[str] = []
@@ -551,6 +556,11 @@ async def status_stream(
                 status_code=422,
                 detail=f"Invalid event types: {invalid}. Valid types: {valid_types}",
             )
+
+    # Public readers should not receive private message/escalation/reservation data.
+    # Reservation events include file paths; keep public streams bead-only.
+    if public_reader:
+        event_type_set = {"bead"}
 
     return StreamingResponse(
         stream_events_multi(

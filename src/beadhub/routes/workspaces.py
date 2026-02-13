@@ -22,6 +22,7 @@ from beadhub.aweb_introspection import get_identity_from_auth, get_project_from_
 from ..beads_sync import is_valid_alias, is_valid_canonical_origin, is_valid_human_name
 from ..config import get_settings
 from ..db import DatabaseInfra, get_db_infra
+from ..internal_auth import is_public_reader
 from ..names import CLASSIC_NAMES
 from ..pagination import encode_cursor, validate_pagination_params
 from ..presence import (
@@ -1059,6 +1060,7 @@ async def list_workspaces(
     Use /v1/workspaces/online for only currently active workspaces.
     """
     project_id = await get_project_from_auth(request, db_infra)
+    public_reader = is_public_reader(request)
 
     # Validate pagination params
     try:
@@ -1234,21 +1236,34 @@ async def list_workspaces(
             status = presence.get("status") or "active"
             last_seen = presence.get("last_seen") or last_seen
 
+        # Public readers (principal_type="p") must not see PII.
+        human_name_value = row["human_name"]
+        member_email_value = member_email
+        role_value = role
+        hostname_value = row["hostname"]
+        workspace_path_value = row["workspace_path"]
+        if public_reader:
+            human_name_value = None
+            member_email_value = None
+            role_value = None
+            hostname_value = None
+            workspace_path_value = None
+
         workspaces.append(
             WorkspaceInfo(
                 workspace_id=workspace_id,
                 alias=row["alias"],
-                human_name=row["human_name"],
+                human_name=human_name_value,
                 project_id=str(row["project_id"]),
                 project_slug=row["project_slug"],
                 program=program,
                 model=model,
                 repo=row["repo"],
                 branch=branch,
-                member_email=member_email,
-                role=role,
-                hostname=row["hostname"],
-                workspace_path=row["workspace_path"],
+                member_email=member_email_value,
+                role=role_value,
+                hostname=hostname_value,
+                workspace_path=workspace_path_value,
                 apex_id=first_apex_id,
                 apex_title=first_apex_title,
                 apex_type=first_apex_type,
@@ -1304,6 +1319,7 @@ async def list_team_workspaces(
     limited, prioritized set of workspaces.
     """
     project_id = await get_project_from_auth(request, db_infra)
+    public_reader = is_public_reader(request)
 
     server_db = db_infra.get_manager("server")
 
@@ -1540,20 +1556,32 @@ async def list_team_workspaces(
         has_claims = 1 if claim_count > 0 else 0
         is_online = 1 if (include_presence and presence) else 0
 
+        human_name_value = row["human_name"]
+        member_email_value = member_email
+        role_value = role
+        hostname_value = row["hostname"]
+        workspace_path_value = row["workspace_path"]
+        if public_reader:
+            human_name_value = None
+            member_email_value = None
+            role_value = None
+            hostname_value = None
+            workspace_path_value = None
+
         workspace_info = WorkspaceInfo(
             workspace_id=workspace_id,
             alias=row["alias"],
-            human_name=row["human_name"],
+            human_name=human_name_value,
             project_id=str(row["project_id"]),
             project_slug=row["project_slug"],
             program=program,
             model=model,
             repo=row["repo"],
             branch=branch,
-            member_email=member_email,
-            role=role,
-            hostname=row["hostname"],
-            workspace_path=row["workspace_path"],
+            member_email=member_email_value,
+            role=role_value,
+            hostname=hostname_value,
+            workspace_path=workspace_path_value,
             apex_id=first_apex_id,
             apex_title=first_apex_title,
             apex_type=first_apex_type,
@@ -1610,6 +1638,7 @@ async def list_online_workspaces(
     For all registered workspaces (including offline), use GET /v1/workspaces.
     """
     project_id = await get_project_from_auth(request, db_infra)
+    public_reader = is_public_reader(request)
 
     presences = await list_agent_presences(redis)
 
@@ -1631,14 +1660,14 @@ async def list_online_workspaces(
             WorkspaceInfo(
                 workspace_id=workspace_id,
                 alias=alias,
-                human_name=presence.get("human_name"),
+                human_name=None if public_reader else presence.get("human_name"),
                 project_slug=presence.get("project_slug"),
                 program=presence.get("program"),
                 model=presence.get("model"),
                 repo=None,  # Not stored in presence
                 branch=presence.get("current_branch"),
-                member_email=presence.get("member_email"),
-                role=presence.get("role") or None,
+                member_email=None if public_reader else presence.get("member_email"),
+                role=None if public_reader else (presence.get("role") or None),
                 status=presence.get("status") or "unknown",
                 last_seen=presence.get("last_seen") or "",
             )

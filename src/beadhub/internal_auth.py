@@ -126,3 +126,13 @@ def parse_internal_auth_context(request: Request) -> Optional[InternalAuthContex
         "principal_id": principal_id,
         "actor_id": actor_id,
     }
+
+
+def is_public_reader(request: Request) -> bool:
+    """True when the request is coming from a trusted wrapper as a public reader.
+
+    Cloud mode uses a signed internal auth context with principal_type="p" to
+    allow read-only access for unauthenticated visitors to *public* projects.
+    """
+    internal = parse_internal_auth_context(request)
+    return internal is not None and (internal.get("principal_type") or "") == "p"
