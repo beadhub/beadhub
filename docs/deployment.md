@@ -4,10 +4,10 @@ BeadHub OSS is designed for **trusted networks** (local development, VPN, privat
 
 ## Quick Start (Development)
 
-For local development, no special configuration is needed beyond starting the dependencies:
+For local development, use `make start` which runs Docker with isolated ports (won't clash with local Postgres/Redis):
 
 ```bash
-POSTGRES_PASSWORD=demo docker compose up -d
+make start
 ```
 
 To bootstrap a project API key for CLI/dashboard access, run `bdh :init` in your repo/workspace (or call `POST /v1/init` directly).
