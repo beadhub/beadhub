@@ -1,3 +1,6 @@
+## Project Context
+See [docs/sot.md](docs/sot.md) for what this repo is, how it fits in the ecosystem, and key patterns.
+
 # BeadHub
 
 Multi-agent coordination server for AI coding assistants. Provides workspace registration, file locking, messaging (mail + chat), and policy management.
