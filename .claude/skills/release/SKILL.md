@@ -1,65 +1,58 @@
 ---
 name: release
-description: Create a new bdh release. Pushes main to origin and creates a release tag that triggers the binary build workflow.
+description: Prepare a beadhub release for PyPI. Runs quality gates, bumps version, builds, verifies, commits, and pushes.
+argument-hint: [version]
+allowed-tools: Bash(uv run *), Bash(uv build *), Bash(git *), Bash(unzip *), Bash(ls *), Bash(rm -rf dist/*)
 ---
 
-# Release Skill
+# Release beadhub to PyPI
 
-Creates a new bdh release by pushing code and creating a release tag.
+## Steps
 
-## What This Does
+1. **Determine version.** If `$ARGUMENTS` is provided, use it. Otherwise read the current version from `pyproject.toml` and ask what the new version should be.
 
-1. Verifies main branch is clean and ready
-2. Pushes main to origin
-3. Creates a semver tag (e.g., `v0.1.0`)
-4. Pushes the tag to trigger the release workflow
-
-The `bdh-release.yml` GitHub Action will then:
-- Build binaries for linux/darwin/windows × amd64/arm64
-- Create a GitHub Release with checksums
-- Make the curl installer work: `curl -fsSL https://raw.githubusercontent.com/beadhub/bdh/main/install.sh | sh`
-
-## Instructions
-
-1. First, check the current state:
+2. **Verify clean state:**
    ```bash
-   cd /Users/juanre/prj/beadhub-all/bdh
    git status
    git log origin/main..HEAD --oneline
    ```
+   Working tree must be clean and up to date with origin. If there are unpushed commits, show them and ask whether to proceed.
 
-2. Show the user what will be pushed and ask for the version number.
-
-3. If user confirms, execute the release:
+3. **Run quality gates** (all must pass):
    ```bash
-   cd /Users/juanre/prj/beadhub-all/bdh
-   git push origin main
-   git tag v<VERSION>
-   git push origin v<VERSION>
+   uv run black src/ tests/
+   uv run isort src/ tests/
+   uv run ruff check src/ tests/
+   uv run mypy
+   uv run pytest --tb=short -q
    ```
 
-4. Provide the URL to watch the release workflow:
-   `https://github.com/beadhub/bdh/actions`
+4. **Bump version** in `pyproject.toml` to the target version.
+
+5. **Clean old artifacts and build:**
+   ```bash
+   rm -rf dist/
+   uv build
+   ```
+
+6. **Verify the package:**
+   - Check that `dist/` contains exactly one `.tar.gz` and one `.whl`, both with the correct version in the filename.
+   - List the wheel contents and verify the package looks right:
+     ```bash
+     unzip -l dist/beadhub-<VERSION>-py3-none-any.whl
+     ```
+   - Confirm no unexpected files (credentials, .env files, large binaries) are included.
+   - Report the artifact filenames and sizes to the user.
+
+7. **Commit and push:**
+   ```bash
+   git add pyproject.toml uv.lock
+   git commit -m "release: Bump version to <VERSION>"
+   git push
+   ```
+
+8. **Report ready.** Tell the user the build artifacts in `dist/` are verified and ready. They can publish with `uv publish`.
 
 ## Version Format
 
-Tags must follow: `v<MAJOR>.<MINOR>.<PATCH>`
-
-Examples:
-- `v0.1.0` - Initial release
-- `v0.1.1` - Patch release
-- `v0.2.0` - Minor release with new features
-
-## Pre-release Checklist
-
-Before releasing, verify:
-- [ ] All tests pass locally
-- [ ] CI is green (or will be after push)
-- [ ] README install URL points to `beadhub/bdh`
-- [ ] No uncommitted changes on main
-
-## After Release
-
-The release workflow takes ~2-3 minutes. Once complete:
-- Binaries available at: `https://github.com/beadhub/bdh/releases`
-- Curl installer will download prebuilt binaries instead of building from source
+`MAJOR.MINOR.PATCH` (no `v` prefix — this is a Python package, not a git tag).
