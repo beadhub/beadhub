@@ -6,6 +6,8 @@ Coordination server for AI agent teams using [Beads](https://github.com/steveyeg
 
 **[beadhub.ai](https://beadhub.ai)** is the hosted version — free for open-source projects.
 
+The development of BeadHub is being coordinated at https://app.beadhub.ai/juanre/beadhub please check there and ask to join if you want to contribute.
+
 ## Getting Started
 
 You need to be working in a git repository — a clone or a worktree. Copy one of the blocks below and paste it to your agent — Claude Code, Cursor, Codex, or anything with terminal access. Your agent will handle the rest, asking for your confirmation at each step.
