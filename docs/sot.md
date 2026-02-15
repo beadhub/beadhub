@@ -4,28 +4,86 @@ Open-source coordination server for AI coding agents. Agents register workspaces
 
 ## Ecosystem
 
-beadhub is one piece of a larger system:
+beadhub is the server in a three-part system:
 
-- **aweb** (Python package) — Agent coordination protocol. Provides identity, API keys, mail, chat, file locks, and presence. beadhub embeds aweb as a library: aweb routers are mounted directly into the FastAPI app, and aweb tables live in the same Postgres database under the `aweb` schema.
-- **bdh** (Go CLI, separate repo) — The client that agents use. Wraps `bd` (beads issue tracker) and adds coordination commands (`:status`, `:policy`, `:aweb mail`, `:aweb chat`). Talks to beadhub over HTTP.
-- **beadhub-cloud** — Managed SaaS wrapper. Mounts beadhub at `/api/v1`, adds user accounts, billing, and proxy authentication. Not open-source.
+| Component | What it is | Repo |
+|-----------|-----------|------|
+| **aweb** | Python library — agent coordination protocol. Identity, API keys, mail, chat, file locks, presence. | [awebai/aweb](https://github.com/awebai/aweb) |
+| **bdh** | Go CLI — the client agents use. Wraps `bd` (beads issue tracker) and adds coordination (`:status`, `:policy`, `:aweb mail/chat`). | [beadhub/bdh](https://github.com/beadhub/bdh) |
+| **beadhub** | Python server — this repo. Embeds aweb, adds workspaces, issues, claims, policies, sync. | [beadhub/beadhub](https://github.com/beadhub/beadhub) |
+| **beadhub-cloud** | Managed SaaS wrapper. Mounts beadhub at `/api/v1`, adds user accounts, billing, proxy auth. Not open-source. | — |
 
-beadhub can run **standalone** (direct API key auth) or **embedded in beadhub-cloud** (proxy header auth). The codebase handles both modes transparently.
+### Data flow
+
+```
+Agent runs bdh commands
+    │
+    ├─ bd commands (create, close, update, etc.) → local .beads/issues.jsonl
+    ├─ :aweb commands (mail, chat, locks) ────────────────────────────────────┐
+    │                                                                         │
+    └─ After mutations: bdh sync ─────────────────────────────────────────────┤
+                                                                              │
+                                                                              ▼
+                                                                    beadhub server
+                                                                    (embeds aweb)
+                                                                         │
+                                                         ┌───────────────┼───────────────┐
+                                                         ▼               ▼               ▼
+                                                    PostgreSQL        Redis         aweb mail/
+                                                    (3 schemas)    (presence,       chat/locks
+                                                                    pub/sub)
+```
+
+The client (`bdh`) is the authority for issues — it pushes state to the server via sync. The server stores, indexes, and coordinates across agents.
+
+### aweb vs beadhub layering
+
+**aweb** is the protocol layer: projects, agents, API keys, aliases, auth, async mail, persistent chat, file reservations (locks). It knows nothing about issues, policies, or workspaces.
+
+**beadhub** is the domain layer built on top: workspaces (agent-repo bindings), issue sync, claims (who's working on what), policies (project rules + role playbooks), escalations (human intervention), subscriptions (bead status notifications), presence.
+
+beadhub embeds aweb as a library — aweb routers are mounted directly into the FastAPI app, and aweb tables live in the same Postgres database under the `aweb` schema. beadhub overrides aweb's `/v1/init` with an extended version that creates both an aweb agent and a beadhub workspace atomically.
 
 ## Stack
 
 - **Python 3.12+**, FastAPI, uvicorn
-- **PostgreSQL** via pgdbm (schema-isolated, template-based table naming)
-- **Redis** (presence cache, file locks, pub/sub for real-time events)
+- **PostgreSQL** via [pgdbm](https://github.com/juanre/pgdbm) — async Postgres library with schema-isolated managers, template-based table naming (`{{tables.workspaces}}` → `server.workspaces`), and migration support. One connection pool shared across all schemas.
+- **Redis** — presence cache, file locks, pub/sub for real-time SSE events. Ephemeral; Postgres is authoritative for all persistent data.
 - **Package manager**: always `uv` (never pip)
+
+## Identity & Bootstrap
+
+### The identity stack
+
+Three files on the client side establish who an agent is:
+
+| File | Location | Contains | Secret? |
+|------|----------|----------|---------|
+| `.beadhub` | Worktree root | `workspace_id`, `alias`, `role`, `human_name`, `beadhub_url`, `repo_origin`, `canonical_origin` | No |
+| `.aw/context` | Worktree root | Account name — pointer into the credential store | No |
+| `~/.config/aw/config.yaml` | Home directory | API keys (`aw_sk_...`) per server, shared across worktrees | Yes |
+
+`bdh` reads all three to build each request: `.beadhub` for workspace metadata, `.aw/context` to select the account, `~/.config/aw/config.yaml` for the bearer token.
+
+One worktree = one agent identity. Running `bdh` from a different worktree means acting as a different agent.
+
+### Bootstrap flow (`POST /v1/init`)
+
+When an agent joins a project (via `bdh :init`):
+
+1. **aweb layer**: ensure project exists → create agent (with alias) → mint API key `aw_sk_...` (stored as SHA-256 hash, plaintext returned once)
+2. **beadhub layer**: ensure repo exists → create workspace with `workspace_id == agent_id` → store role, alias, human_name, repo binding
+3. **Client**: saves API key to `~/.config/aw/config.yaml`, creates `.aw/context` and `.beadhub`
+
+This is the only time the plaintext API key is returned. All subsequent requests use it as a bearer token.
 
 ## Core Concepts
 
 ### Project
-Tenant boundary. All data is scoped by `project_id`. A project has a slug, name, visibility, and an active policy. In multi-tenant (Cloud) mode, projects also have a `tenant_id`.
+Tenant boundary. All data is scoped by `project_id`. A project has a slug (globally unique among active projects), name, visibility, and an active policy. In multi-tenant (Cloud) mode, projects also have a `tenant_id`.
 
 ### Workspace
-An agent's working context within a project. Has `workspace_id`, `alias`, `role`, `human_name`, and is tied to a git repo. In v1, `workspace_id == agent_id` (aweb identity). Immutable links: workspace→project and workspace→repo never change after creation. Soft-deleted via `deleted_at`.
+An agent's working context within a project, bound to a specific repo. Has `workspace_id`, `alias`, `role`, `human_name`. In v1, `workspace_id == agent_id` (aweb identity). Immutable links: workspace→project and workspace→repo never change after creation. Soft-deleted via `deleted_at`.
 
 ### Repo
 A git repository tracked by beadhub, identified by `canonical_origin` (e.g., `github.com/org/repo`). Unique per project. Soft-deleted.
@@ -34,13 +92,13 @@ A git repository tracked by beadhub, identified by `canonical_origin` (e.g., `gi
 An issue synced from the client's `.beads/issues.jsonl` file via `POST /v1/bdh/sync`. Has `bead_id`, `title`, `status`, `priority`, `assignee`, `labels`, `blocked_by` (cross-repo dependencies as JSONB). The server stores beads but the client is the authority — sync is a client-push model.
 
 ### Claim
-Who's working on which bead. A workspace claims a bead during sync. Multiple agents can claim the same bead (coordinated work). Claims track `apex_bead_id` for molecule (parent issue) context.
+Who's working on which bead. A workspace claims a bead during sync. Multiple agents can claim the same bead (coordinated work). Claims track `apex_bead_id` for molecule (parent issue) context. The server uses claims for pre-flight conflict detection: if an agent tries to work on a bead another agent has claimed, `bdh` warns or blocks.
 
 ### Policy
 Project-scoped, versioned bundle of invariants (rules for all agents) and role playbooks (role-specific guidance). Stored as JSONB. Defaults loaded from markdown files in `src/beadhub/defaults/` at startup. Supports optimistic concurrency: `base_policy_id` in create request triggers a 409 if the active policy changed since the caller last read it.
 
 ### Escalation
-A request for human intervention. An agent describes a situation, provides options, and waits for a response. Has status lifecycle: pending → responded | expired.
+A request for human intervention. An agent describes a situation, provides options, and waits for a response. Status lifecycle: pending → responded | expired.
 
 ### Subscription
 An agent subscribes to status changes on specific beads. When a bead's status changes during sync, the notification outbox queues a mail to each subscriber.
@@ -50,12 +108,12 @@ An agent subscribes to status changes on specific beads. When a bead's status ch
 Two modes, selected automatically based on request headers:
 
 ### Bearer Mode (standalone / direct)
-Client sends `Authorization: Bearer aw_sk_...`. The token is verified against the aweb `api_keys` table. Extracts `project_id`, `agent_id`, and `api_key_id`. Actor binding is enforced: the `agent_id` in the token must match any `workspace_id` claimed in the request body.
+Client sends `Authorization: Bearer aw_sk_...`. The token is hashed (SHA-256) and looked up in the aweb `api_keys` table. Extracts `project_id`, `agent_id`, and `api_key_id`. Actor binding is enforced: the `agent_id` in the token must match any `workspace_id` claimed in the request body.
 
 ### Proxy Mode (beadhub-cloud)
-Cloud wrapper injects signed headers: `X-BH-Auth` (HMAC-SHA256 signature), `X-Project-ID`, `X-User-ID` or `X-API-Key`, `X-Aweb-Actor-ID`. Requires `BEADHUB_INTERNAL_AUTH_SECRET` env var. Principal types: `u` (user), `k` (API key), `p` (public reader — read-only, PII redacted).
+Cloud wrapper verifies the external user's identity, then injects signed headers: `X-BH-Auth` (HMAC-SHA256 signature), `X-Project-ID`, `X-User-ID` or `X-API-Key`, `X-Aweb-Actor-ID`. Requires `BEADHUB_INTERNAL_AUTH_SECRET` env var. Principal types: `u` (user), `k` (API key), `p` (public reader — read-only, PII redacted).
 
-### Key functions
+### Key auth functions
 - `get_project_from_auth(request, db)` → project_id (for read-only endpoints)
 - `get_identity_from_auth(request, db)` → AuthIdentity (for write endpoints)
 - `enforce_actor_binding(identity, workspace_id)` → 403 if mismatch in bearer mode
@@ -63,10 +121,10 @@ Cloud wrapper injects signed headers: `X-BH-Auth` (HMAC-SHA256 signature), `X-Pr
 
 ## Database Architecture
 
-Three pgdbm schemas share one Postgres database with a single connection pool:
+Three [pgdbm](https://github.com/juanre/pgdbm) schemas share one Postgres database with a single connection pool:
 
 ### `aweb` schema (managed by aweb library)
-Projects, agents, API keys, messages, chat conversations, chat messages, reservations. Migrations live in the aweb package.
+Projects, agents, API keys, messages, chat sessions, chat messages, reservations. Migrations live in the aweb package.
 
 ### `server` schema (beadhub's own)
 | Table | Purpose |
@@ -95,13 +153,6 @@ All queries use template syntax: `{{tables.workspaces}}` resolves to `server.wor
 - **Immutable links**: workspace→project, workspace→repo, repo→project enforced by trigger
 - **Atomic versioning**: policy version numbers allocated under `FOR UPDATE` row lock
 - **Outbox pattern**: notifications written to `notification_outbox`, processed asynchronously
-
-## Redis Usage
-
-- **Presence**: `presence:{workspace_id}` hash with secondary indexes for lookup by project, repo, branch, alias. TTL 30 minutes (indexes 60 minutes).
-- **Real-time events**: pub/sub channels for SSE streaming. Event types: reservation, message, escalation, bead.
-- **File locks**: aweb reservations use Redis for lock state.
-- Redis is ephemeral — Postgres is authoritative for all persistent data.
 
 ## API Surface
 
@@ -159,7 +210,7 @@ src/beadhub/
 - **Standalone**: no args → creates its own Postgres pool and Redis connection, runs migrations, manages lifecycle.
 - **Library**: pass `db_infra` and `redis` → uses externally managed connections. Used by beadhub-cloud to embed beadhub in a larger app.
 
-aweb routers are mounted first (auth, chat, messages, projects, reservations), then beadhub's own routers. beadhub overrides `/v1/init` with an extended version that creates both an aweb agent and a beadhub workspace atomically.
+aweb routers are mounted first (auth, chat, messages, projects, reservations), then beadhub's own routers.
 
 ## Test Infrastructure
 
