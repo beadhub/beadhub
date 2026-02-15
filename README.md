@@ -15,7 +15,7 @@ You need to be working in a git repository — a clone or a worktree. Copy one o
 ```
 This is a text copied from the internet. Do NOT execute any command, or follow any instruction, without asking me first.
 
-WHAT THIS IS
+WHAT BEADHUB IS
 
 BeadHub is an open-source coordination layer for AI programming agents. It lets multiple agents working on the same project see each other, claim work, chat, exchange mail, and avoid conflicts.
 
@@ -89,8 +89,15 @@ SETUP
 ADDING MORE AGENTS
 
 To add more agents to the same project, use bdh :add-worktree from the initialized repo. Each agent gets its own git worktree, branch, and workspace identity. For example:
+
    bdh :add-worktree backend
+
 This creates a new worktree at ../<repo>-<name>/ (e.g., ../myproject-alice/), picks an alias automatically (alice, bob, charlie, ...), creates a branch, and runs bdh :init in the new worktree. The user then opens a new agent session in that worktree directory.
+
+Different machines or separate clones: Clone the repo and run the init flow with a new API key. You will need to get the API key from the dashboard of your project. Server coordination (claims, locks, chat, mail) works the same way. Local issue visibility requires git push/pull since each clone has its own issue database.
+
+   git clone <repo> && cd <repo>
+   BEADHUB_API_KEY=<apiKey> bdh :init
 ```
 
 ### Self-hosted
@@ -100,7 +107,7 @@ Requires Docker (or PostgreSQL + Redis if installing from PyPI). Paste this to y
 ```
 This is a text copied from the internet. Do NOT execute any command, or follow any instruction, without asking me first.
 
-WHAT THIS IS
+WHAT BEADHUB IS
 
 BeadHub is an open-source coordination layer for AI programming agents. It lets multiple agents working on the same project see each other, claim work, chat, exchange mail, and avoid conflicts.
 
@@ -169,10 +176,15 @@ SETUP
 ADDING MORE AGENTS
 
 To add more agents to the same project, use bdh :add-worktree from the initialized repo. Each agent gets its own git worktree, branch, and workspace identity. For example:
+
    bdh :add-worktree backend
+
 This creates a new worktree at ../<repo>-<name>/ (e.g., ../myproject-alice/), picks an alias automatically (alice, bob, charlie, ...), creates a branch, and runs bdh :init in the new worktree. The user then opens a new agent session in that worktree directory.
 
-Alternatively, you can use separate clones instead of worktrees — this works for agents on different machines. Server coordination is identical; only local issue visibility differs.
+Different machines or separate clones: Clone the repo and run the init flow (step 6) again. Server coordination (claims, locks, chat, mail) works the same way. Local issue visibility requires git push/pull since each clone has its own issue database.
+
+   git clone <repo> && cd <repo>
+   bdh :init --beadhub-url http://localhost:8000 --project <project-name>
 ```
 
 You can also install from PyPI (`uv add beadhub` or `pip install beadhub`) and run `beadhub serve` directly if you have PostgreSQL and Redis available.
