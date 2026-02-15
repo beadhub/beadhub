@@ -292,10 +292,6 @@ uv run uvicorn beadhub.api:create_app --factory --reload
 
 # In another terminal, test endpoints
 curl http://localhost:8000/health
-
-curl -X POST http://localhost:8000/v1/agents/register \
-  -H "Content-Type: application/json" \
-  -d '{"project_slug": "test-project", "name": "dev-agent", "program": "test"}'
 ```
 
 ### 5. Complete the Task
@@ -307,63 +303,7 @@ git add -A && git commit -m "feat: implement X"
 
 ## Pointing Agents at Local BeadHub
 
-To test with actual AI agents, configure them to use your local instance:
-
-### Claude Code
-
-Add to your project's `CLAUDE.md`:
-
-```markdown
-## Agent Coordination
-
-This project uses a local BeadHub instance for coordination.
-
-BEADHUB_API_URL=http://localhost:8000
-PROJECT_KEY=/path/to/your/project
-```
-
-### Environment-Based Configuration
-
-Most agents can be configured via environment variables:
-
-```bash
-export BEADHUB_API_URL=http://localhost:8000
-```
-
-### Testing Agent Integration
-
-The best way to test agent integration is to use `bdh` commands in a test workspace:
-
-```bash
-# Initialize a test workspace
-cd /tmp/test-project
-bdh :init  # Creates .beadhub with workspace_id
-
-# Check ready work
-bdh ready
-
-# Claim a bead (tests coordination)
-bdh update bd-42 --status in_progress
-
-# If another agent has it, you'll see the rejection with their info
-```
-
-For API-level testing:
-
-```bash
-# Simulate agent registration
-curl -X POST http://localhost:8000/v1/agents/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "project_slug": "my-project",
-    "name": "test-agent",
-    "program": "claude-code",
-    "model": "claude-sonnet-4"
-  }'
-
-# Check status
-curl "http://localhost:8000/v1/status?project_slug=my-project" | jq
-```
+Use `bdh :init --beadhub-url http://localhost:8000` in your repo to connect an agent to a local server. See the self-hosted setup block in [README.md](../README.md#self-hosted) for the full flow.
 
 ## Troubleshooting
 
@@ -429,10 +369,4 @@ export BEADHUB_REDIS_URL=redis://localhost:6380/0
 - Keep functions focused and testable
 - Write tests for new functionality (TDD preferred)
 
-## Architecture Notes
-
-- **FastAPI** async API server
-- **Redis** for real-time state (presence, messages)
-- **PostgreSQL** for persistent state (bead claims, escalations, beads issues, audit log)
-- **pgdbm** for database access (shared pool pattern, schema-based isolation)
-- **bdh** for bead-level coordination (wraps `bd` with BeadHub integration)
+See [docs/sot.md](sot.md) for architecture details.

@@ -6,6 +6,21 @@ This project follows a pragmatic, OSS-friendly changelog format (similar to Keep
 
 ## Unreleased
 
+## 0.2.5 — 2026-02-14
+
+### Added
+- Optimistic concurrency for policy creation: optional `base_policy_id` returns 409 on conflict (atomic via CTE with `FOR UPDATE`)
+- Public reader principal type (`p`) in proxy auth for read-only dashboard access
+- Pre-push quality gates via tracked `.githooks/` (black, isort, ruff, mypy)
+
+### Fixed
+- PII redaction for public project readers (alias, human_name stripped)
+- Additive visibility migration (safe for existing databases)
+
+### Changed
+- README onboarding blocks updated to canonical texts (security preamble, two-phase role, `:init` disclosure)
+- `docs/sot.md` rewritten as comprehensive agent onboarding document
+
 ## 0.2.4 — 2026-02-11
 
 ### Fixed
