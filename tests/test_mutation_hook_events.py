@@ -104,9 +104,7 @@ async def test_message_sent_publishes_event(db_infra, redis_client_async):
     """Sending a message publishes MessageDeliveredEvent to recipient's channel."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             ws_a, key_a, _, ws_b, _, alias_b = await _setup_two_agents(client)
 
             # Subscribe to recipient's channel
@@ -138,9 +136,7 @@ async def test_message_ack_publishes_event(db_infra, redis_client_async):
     """Acknowledging a message publishes MessageAcknowledgedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, key_a, _, ws_b, key_b, alias_b = await _setup_two_agents(client)
 
             # Send a message from A to B
@@ -163,7 +159,9 @@ async def test_message_ack_publishes_event(db_infra, redis_client_async):
 
                 events = await _collect_events(pubsub)
                 ack_events = [e for e in events if e["type"] == "message.acknowledged"]
-                assert len(ack_events) == 1, f"Expected 1 message.acknowledged event, got {ack_events}"
+                assert (
+                    len(ack_events) == 1
+                ), f"Expected 1 message.acknowledged event, got {ack_events}"
                 assert ack_events[0]["message_id"] == message_id
                 assert ack_events[0]["workspace_id"] == ws_b
             finally:
@@ -181,9 +179,7 @@ async def test_chat_message_publishes_event(db_infra, redis_client_async):
     """Sending a chat message publishes ChatMessageEvent to sender's channel."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             ws_a, key_a, _, _, _, alias_b = await _setup_two_agents(client)
 
             # Subscribe to sender's channel
@@ -202,7 +198,9 @@ async def test_chat_message_publishes_event(db_infra, redis_client_async):
 
                 events = await _collect_events(pubsub)
                 chat_events = [e for e in events if e["type"] == "chat.message_sent"]
-                assert len(chat_events) == 1, f"Expected 1 chat.message_sent event, got {chat_events}"
+                assert (
+                    len(chat_events) == 1
+                ), f"Expected 1 chat.message_sent event, got {chat_events}"
                 assert chat_events[0]["session_id"] == session_id
                 assert chat_events[0]["workspace_id"] == ws_a
             finally:
@@ -220,9 +218,7 @@ async def test_reservation_acquired_publishes_event(db_infra, redis_client_async
     """Acquiring a reservation publishes ReservationAcquiredEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             ws_a, key_a, _, _, _, _ = await _setup_two_agents(client)
 
             pubsub = await _subscribe(redis_client_async, ws_a)
@@ -236,7 +232,9 @@ async def test_reservation_acquired_publishes_event(db_infra, redis_client_async
 
                 events = await _collect_events(pubsub)
                 res_events = [e for e in events if e["type"] == "reservation.acquired"]
-                assert len(res_events) == 1, f"Expected 1 reservation.acquired event, got {res_events}"
+                assert (
+                    len(res_events) == 1
+                ), f"Expected 1 reservation.acquired event, got {res_events}"
                 assert res_events[0]["workspace_id"] == ws_a
                 assert "src/main.py" in res_events[0]["paths"]
             finally:
@@ -249,9 +247,7 @@ async def test_reservation_released_publishes_event(db_infra, redis_client_async
     """Releasing a reservation publishes ReservationReleasedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             ws_a, key_a, _, _, _, _ = await _setup_two_agents(client)
 
             # Acquire first
@@ -274,7 +270,9 @@ async def test_reservation_released_publishes_event(db_infra, redis_client_async
 
                 events = await _collect_events(pubsub)
                 rel_events = [e for e in events if e["type"] == "reservation.released"]
-                assert len(rel_events) == 1, f"Expected 1 reservation.released event, got {rel_events}"
+                assert (
+                    len(rel_events) == 1
+                ), f"Expected 1 reservation.released event, got {rel_events}"
                 assert rel_events[0]["workspace_id"] == ws_a
                 assert "src/util.py" in rel_events[0]["paths"]
             finally:
@@ -302,12 +300,15 @@ def test_translate_missing_workspace_id_produces_empty():
 
 def test_translate_message_sent_maps_fields():
     """message.sent context maps correctly to MessageDeliveredEvent."""
-    event = _translate("message.sent", {
-        "message_id": "m1",
-        "from_agent_id": "agent-a",
-        "to_agent_id": "agent-b",
-        "subject": "hello",
-    })
+    event = _translate(
+        "message.sent",
+        {
+            "message_id": "m1",
+            "from_agent_id": "agent-a",
+            "to_agent_id": "agent-b",
+            "subject": "hello",
+        },
+    )
     assert event.type == "message.delivered"
     assert event.workspace_id == "agent-b"
     assert event.from_workspace == "agent-a"

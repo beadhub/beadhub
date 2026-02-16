@@ -78,9 +78,7 @@ async def test_sync_publishes_bead_claimed_event(db_infra, redis_client_async):
     """Claiming a bead via sync publishes BeadClaimedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, _, workspace_id, api_key = await _setup_project(client)
 
             pubsub = await _subscribe(redis_client_async, workspace_id)
@@ -105,7 +103,9 @@ async def test_sync_publishes_bead_claimed_event(db_infra, redis_client_async):
 
                 events = await _collect_events(pubsub)
                 claimed_events = [e for e in events if e["type"] == "bead.claimed"]
-                assert len(claimed_events) == 1, f"Expected 1 bead.claimed event, got {len(claimed_events)} in {events}"
+                assert (
+                    len(claimed_events) == 1
+                ), f"Expected 1 bead.claimed event, got {len(claimed_events)} in {events}"
                 assert claimed_events[0]["bead_id"] == "bd-1"
                 assert claimed_events[0]["workspace_id"] == workspace_id
             finally:
@@ -118,9 +118,7 @@ async def test_sync_publishes_bead_unclaimed_event(db_infra, redis_client_async)
     """Closing a bead via sync publishes BeadUnclaimedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, _, workspace_id, api_key = await _setup_project(client)
             headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -167,7 +165,9 @@ async def test_sync_publishes_bead_unclaimed_event(db_infra, redis_client_async)
 
                 events = await _collect_events(pubsub)
                 unclaimed_events = [e for e in events if e["type"] == "bead.unclaimed"]
-                assert len(unclaimed_events) == 1, f"Expected 1 bead.unclaimed event, got {len(unclaimed_events)} in {events}"
+                assert (
+                    len(unclaimed_events) == 1
+                ), f"Expected 1 bead.unclaimed event, got {len(unclaimed_events)} in {events}"
                 assert unclaimed_events[0]["bead_id"] == "bd-1"
                 assert unclaimed_events[0]["workspace_id"] == workspace_id
             finally:
@@ -180,9 +180,7 @@ async def test_sync_publishes_unclaimed_events_for_deleted_ids(db_infra, redis_c
     """Deleting beads via deleted_ids publishes BeadUnclaimedEvent for each."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, _, workspace_id, api_key = await _setup_project(client)
             headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -249,9 +247,10 @@ async def test_sync_publishes_unclaimed_events_for_deleted_ids(db_infra, redis_c
                 events = await _collect_events(pubsub)
                 unclaimed_events = [e for e in events if e["type"] == "bead.unclaimed"]
                 unclaimed_bead_ids = {e["bead_id"] for e in unclaimed_events}
-                assert unclaimed_bead_ids == {"bd-a", "bd-b"}, (
-                    f"Expected unclaimed events for bd-a and bd-b, got {unclaimed_bead_ids}"
-                )
+                assert unclaimed_bead_ids == {
+                    "bd-a",
+                    "bd-b",
+                }, f"Expected unclaimed events for bd-a and bd-b, got {unclaimed_bead_ids}"
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -267,9 +266,7 @@ async def test_sync_publishes_bead_status_changed_event(db_infra, redis_client_a
     """Syncing a new bead publishes BeadStatusChangedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, _, workspace_id, api_key = await _setup_project(client)
 
             pubsub = await _subscribe(redis_client_async, workspace_id)
@@ -294,7 +291,9 @@ async def test_sync_publishes_bead_status_changed_event(db_infra, redis_client_a
 
                 events = await _collect_events(pubsub)
                 sc_events = [e for e in events if e["type"] == "bead.status_changed"]
-                assert len(sc_events) == 1, f"Expected 1 bead.status_changed event, got {len(sc_events)} in {events}"
+                assert (
+                    len(sc_events) == 1
+                ), f"Expected 1 bead.status_changed event, got {len(sc_events)} in {events}"
                 assert sc_events[0]["bead_id"] == "bd-2"
                 assert sc_events[0]["old_status"] == ""
                 assert sc_events[0]["new_status"] == "open"
@@ -309,9 +308,7 @@ async def test_beads_upload_publishes_bead_status_changed_event(db_infra, redis_
     """Uploading beads via /v1/beads/upload publishes BeadStatusChangedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, _, workspace_id, api_key = await _setup_project(client)
 
             pubsub = await _subscribe(redis_client_async, workspace_id)
@@ -321,16 +318,16 @@ async def test_beads_upload_publishes_bead_status_changed_event(db_infra, redis_
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "repo": "github.com/test/event-publishing",
-                        "issues": [
-                            {"id": "bd-3", "title": "Upload bead", "status": "open"}
-                        ],
+                        "issues": [{"id": "bd-3", "title": "Upload bead", "status": "open"}],
                     },
                 )
                 assert resp.status_code == 200, resp.text
 
                 events = await _collect_events(pubsub)
                 sc_events = [e for e in events if e["type"] == "bead.status_changed"]
-                assert len(sc_events) == 1, f"Expected 1 bead.status_changed event, got {len(sc_events)} in {events}"
+                assert (
+                    len(sc_events) == 1
+                ), f"Expected 1 bead.status_changed event, got {len(sc_events)} in {events}"
                 assert sc_events[0]["bead_id"] == "bd-3"
                 assert sc_events[0]["new_status"] == "open"
                 assert sc_events[0]["workspace_id"] == workspace_id
@@ -344,9 +341,7 @@ async def test_sync_no_events_when_no_status_changes(db_infra, redis_client_asyn
     """Syncing unchanged beads publishes no status change events."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             _, _, workspace_id, api_key = await _setup_project(client)
             headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -361,9 +356,7 @@ async def test_sync_no_events_when_no_status_changes(db_infra, redis_client_asyn
                     "repo_origin": TEST_REPO_ORIGIN,
                     "role": "agent",
                     "sync_mode": "full",
-                    "issues_jsonl": _jsonl(
-                        {"id": "bd-4", "title": "Existing", "status": "open"}
-                    ),
+                    "issues_jsonl": _jsonl({"id": "bd-4", "title": "Existing", "status": "open"}),
                     "command_line": "list",
                 },
             )
