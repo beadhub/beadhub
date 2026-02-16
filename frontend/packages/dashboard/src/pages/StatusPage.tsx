@@ -326,12 +326,12 @@ export function StatusPage() {
                         </div>
                         <div className="flex gap-2">
                           {(status?.escalations_pending ?? 0) > 0 && (
-                            <Link to="/escalations">
+                            <Link to="escalations">
                               <Button variant="outline" size="sm">View Escalations</Button>
                             </Link>
                           )}
                           {conflictCount > 0 && (
-                            <Link to="/claims">
+                            <Link to="claims">
                               <Button variant="outline" size="sm">View Conflicts</Button>
                             </Link>
                           )}
@@ -348,20 +348,20 @@ export function StatusPage() {
                     value={status?.escalations_pending ?? 0}
                     icon={AlertTriangle}
                     variant={(status?.escalations_pending ?? 0) > 0 ? "warning" : "default"}
-                    to="/escalations"
+                    to="escalations"
                   />
                   <StatCard
                     title="Claim Conflicts"
                     value={conflictCount}
                     icon={AlertTriangle}
                     variant={conflictCount > 0 ? "warning" : "default"}
-                    to="/claims"
+                    to="claims"
                   />
                   <StatCard
                     title="Active Claims"
                     value={status?.claims.length ?? 0}
                     icon={GitBranch}
-                    to="/claims"
+                    to="claims"
                   />
                 </div>
               </>
