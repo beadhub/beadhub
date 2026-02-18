@@ -65,4 +65,3 @@ async def test_stream_events_multi_reconnects_after_pubsub_disconnect():
 
     assert any(f.startswith(": keepalive") for f in frames)
     assert redis.pubsub_calls >= 2
-
