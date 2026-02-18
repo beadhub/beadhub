@@ -7,15 +7,15 @@ Thanks for helping improve BeadHub.
 Prereqs:
 - Python 3.12+
 - `uv`
-- Node.js + `pnpm` (for the frontend)
 - PostgreSQL and Redis (via brew or Docker)
+- Node.js + `pnpm` (only if working on the frontend)
 
 Clone and set up:
 ```bash
 git clone https://github.com/beadhub/beadhub.git
 cd beadhub
 uv sync
-pnpm -C frontend install
+pnpm -C frontend install   # skip if backend-only
 make hooks-install
 ```
 
@@ -65,3 +65,37 @@ uv run pytest           # Python tests
 - Add tests for behavior changes.
 - Update docs when you change UX or external interfaces.
 - Pre-push hooks must pass before pushing.
+
+## Coordination with BeadHub
+
+BeadHub coordinates work across contributors — claim tasks, communicate with the team, and avoid conflicts. The dashboard is at [app.beadhub.ai/juanre/beadhub](https://app.beadhub.ai/juanre/beadhub).
+
+### Register
+
+Install `bd` and `bdh` if you don't have them:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/beadhub/bdh/main/install.sh | bash
+```
+
+Get your API key from the [dashboard](https://app.beadhub.ai/juanre/beadhub), then from your fork's clone:
+
+```bash
+BEADHUB_API_KEY=<your-key> bdh :init --role contributor
+```
+
+The API key determines the project. See `bdh :policy` for full project rules after setup.
+
+### Workflow
+
+```bash
+bdh ready                              # Find available work
+bdh show <id>                          # Read the task description
+bdh update <id> --status in_progress   # Claim it
+# ... work, test, commit, push to your fork, open a PR ...
+bdh :aweb mail send coordinator "PR #<number> ready for review"
+bdh close <id>                         # After PR is merged
+```
+
+The coordinator is your primary point of contact for questions, blockers, and reviews.
