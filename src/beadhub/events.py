@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 from redis.asyncio import Redis
 from redis.asyncio.client import PubSub
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -272,30 +274,97 @@ async def stream_events_multi(
         logger.debug("Empty workspace stream reached max duration, closing")
         return
 
-    pubsub: PubSub = redis.pubsub()
+    loop = asyncio.get_running_loop()
+
+    pubsub: PubSub | None = None
+    reconnect_delay_seconds = 0.1
+    max_reconnect_delay_seconds = 5.0
+    next_reconnect_at: float | None = None
+
+    async def _close_pubsub(ps: PubSub | None) -> None:
+        if ps is None:
+            return
+        try:
+            await ps.unsubscribe(*channels)
+        except Exception:
+            pass
+        try:
+            await ps.aclose()
+        except Exception:
+            pass
+
+    async def _connect_pubsub() -> PubSub:
+        ps: PubSub = redis.pubsub()
+        await ps.subscribe(*channels)
+        logger.debug(f"Subscribed to {len(channels)} channels")
+        return ps
 
     try:
-        await pubsub.subscribe(*channels)
-        logger.debug(f"Subscribed to {len(channels)} channels")
-
-        last_keepalive = asyncio.get_event_loop().time()
+        pubsub = await _connect_pubsub()
+        last_keepalive = loop.time()
+        last_pubsub_ping = last_keepalive
 
         while True:
-            # Check for messages with timeout for keepalive
-            try:
-                message = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
-                    timeout=keepalive_seconds,
-                )
-            except asyncio.TimeoutError:
-                message = None
-
             # Check for client disconnect
             if check_disconnected and await check_disconnected():
                 logger.debug(f"Client disconnected, ending stream for {len(channels)} channels")
                 return
 
-            current_time = asyncio.get_event_loop().time()
+            now = loop.time()
+
+            if pubsub is None:
+                if next_reconnect_at is None or now >= next_reconnect_at:
+                    try:
+                        pubsub = await _connect_pubsub()
+                        reconnect_delay_seconds = 0.1
+                        next_reconnect_at = None
+                        last_keepalive = now
+                        last_pubsub_ping = now
+                    except RedisError:
+                        logger.warning(
+                            "Redis pubsub reconnect failed; will retry",
+                            exc_info=True,
+                        )
+                        next_reconnect_at = now + reconnect_delay_seconds
+                        reconnect_delay_seconds = min(
+                            max_reconnect_delay_seconds,
+                            reconnect_delay_seconds * 2,
+                        )
+
+                if now - last_keepalive >= keepalive_seconds:
+                    yield ": keepalive\n\n"
+                    last_keepalive = now
+
+                await asyncio.sleep(min(1.0, keepalive_seconds))
+                continue
+
+            try:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=1.0,
+                )
+            except RedisConnectionError:
+                logger.info("Redis pubsub connection dropped; reconnecting", exc_info=True)
+                await _close_pubsub(pubsub)
+                pubsub = None
+                next_reconnect_at = now + reconnect_delay_seconds
+                reconnect_delay_seconds = min(
+                    max_reconnect_delay_seconds,
+                    reconnect_delay_seconds * 2,
+                )
+                message = None
+            except RedisError:
+                logger.warning("Redis pubsub error; reconnecting", exc_info=True)
+                await _close_pubsub(pubsub)
+                pubsub = None
+                next_reconnect_at = now + reconnect_delay_seconds
+                reconnect_delay_seconds = min(
+                    max_reconnect_delay_seconds,
+                    reconnect_delay_seconds * 2,
+                )
+                message = None
+
+            current_time = loop.time()
 
             if message is not None and message["type"] == "message":
                 data = message["data"]
@@ -317,6 +386,20 @@ async def stream_events_multi(
 
             # Send keepalive comment if needed
             if current_time - last_keepalive >= keepalive_seconds:
+                if pubsub is not None and current_time - last_pubsub_ping >= keepalive_seconds:
+                    try:
+                        await pubsub.ping()
+                        last_pubsub_ping = current_time
+                    except RedisError:
+                        logger.info("Redis pubsub ping failed; reconnecting", exc_info=True)
+                        await _close_pubsub(pubsub)
+                        pubsub = None
+                        next_reconnect_at = current_time + reconnect_delay_seconds
+                        reconnect_delay_seconds = min(
+                            max_reconnect_delay_seconds,
+                            reconnect_delay_seconds * 2,
+                        )
+
                 yield ": keepalive\n\n"
                 last_keepalive = current_time
 
@@ -324,6 +407,5 @@ async def stream_events_multi(
         logger.debug(f"Stream cancelled for {len(channels)} channels")
         raise
     finally:
-        await pubsub.unsubscribe(*channels)
-        await pubsub.aclose()
+        await _close_pubsub(pubsub)
         logger.debug(f"Unsubscribed from {len(channels)} channels")
