@@ -48,7 +48,7 @@ async def test_stream_events_multi_reconnects_after_pubsub_disconnect():
         return False
 
     gen = stream_events_multi(
-        redis,  # type: ignore[arg-type]
+        redis,
         ["ws-1"],
         keepalive_seconds=0.01,
         check_disconnected=check_disconnected,
