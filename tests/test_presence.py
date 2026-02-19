@@ -840,3 +840,98 @@ class TestGetWorkspaceIdByAlias:
 
         result = await get_workspace_id_by_alias(async_redis, project_id, alias)
         assert result == workspace_id
+
+
+class TestTimezoneAndCanonicalOrigin:
+    """Tests for timezone and canonical_origin fields in presence."""
+
+    @pytest.mark.asyncio
+    async def test_canonical_origin_stored_and_returned(self, async_redis):
+        """Should store and return canonical_origin from presence."""
+        ws_id = str(uuid.uuid4())
+
+        await update_agent_presence(
+            async_redis,
+            ws_id,
+            "agent-1",
+            "claude-code",
+            "claude-4",
+            canonical_origin="github.com/org/repo",
+        )
+
+        result = await list_agent_presences(async_redis, workspace_id=ws_id)
+        assert len(result) == 1
+        assert result[0].get("canonical_origin") == "github.com/org/repo"
+
+    @pytest.mark.asyncio
+    async def test_canonical_origin_preserved_when_not_provided(self, async_redis):
+        """Should preserve existing canonical_origin when new presence doesn't provide one."""
+        ws_id = str(uuid.uuid4())
+
+        await update_agent_presence(
+            async_redis,
+            ws_id,
+            "agent-1",
+            "claude-code",
+            "claude-4",
+            canonical_origin="github.com/org/repo",
+        )
+
+        # Second update without canonical_origin
+        await update_agent_presence(
+            async_redis,
+            ws_id,
+            "agent-1",
+            "claude-code",
+            "claude-4",
+        )
+
+        result = await list_agent_presences(async_redis, workspace_id=ws_id)
+        assert len(result) == 1
+        assert result[0].get("canonical_origin") == "github.com/org/repo"
+
+    @pytest.mark.asyncio
+    async def test_timezone_stored_and_returned(self, async_redis):
+        """Should store and return timezone from presence."""
+        ws_id = str(uuid.uuid4())
+
+        await update_agent_presence(
+            async_redis,
+            ws_id,
+            "agent-1",
+            "claude-code",
+            "claude-4",
+            timezone="Europe/Madrid",
+        )
+
+        result = await list_agent_presences(async_redis, workspace_id=ws_id)
+        assert len(result) == 1
+        assert result[0].get("timezone") == "Europe/Madrid"
+
+    @pytest.mark.asyncio
+    async def test_timezone_preserved_when_not_provided(self, async_redis):
+        """Should preserve existing timezone when new presence doesn't provide one."""
+        ws_id = str(uuid.uuid4())
+
+        # First update with timezone
+        await update_agent_presence(
+            async_redis,
+            ws_id,
+            "agent-1",
+            "claude-code",
+            "claude-4",
+            timezone="America/New_York",
+        )
+
+        # Second update without timezone (simulates old client)
+        await update_agent_presence(
+            async_redis,
+            ws_id,
+            "agent-1",
+            "claude-code",
+            "claude-4",
+        )
+
+        result = await list_agent_presences(async_redis, workspace_id=ws_id)
+        assert len(result) == 1
+        assert result[0].get("timezone") == "America/New_York"
