@@ -98,6 +98,7 @@ class MessageDeliveredEvent(Event):
     message_id: str = ""
     from_workspace: str = ""
     from_alias: str = ""
+    to_alias: str = ""
     subject: str = ""
     priority: str = "normal"
 
@@ -108,6 +109,8 @@ class MessageAcknowledgedEvent(Event):
 
     type: str = field(default="message.acknowledged", init=False)
     message_id: str = ""
+    from_alias: str = ""
+    subject: str = ""
 
 
 @dataclass
@@ -136,6 +139,9 @@ class ChatMessageEvent(Event):
     type: str = field(default="chat.message_sent", init=False)
     session_id: str = ""
     message_id: str = ""
+    from_alias: str = ""
+    to_aliases: list[str] = field(default_factory=list)
+    preview: str = ""
 
 
 @dataclass
@@ -148,6 +154,8 @@ class BeadStatusChangedEvent(Event):
     repo: str = ""
     old_status: str = ""
     new_status: str = ""
+    title: str | None = None
+    alias: str = ""
 
 
 @dataclass
@@ -157,6 +165,7 @@ class BeadClaimedEvent(Event):
     type: str = field(default="bead.claimed", init=False)
     bead_id: str = ""
     alias: str = ""
+    title: str | None = None
 
 
 @dataclass
@@ -166,6 +175,7 @@ class BeadUnclaimedEvent(Event):
     type: str = field(default="bead.unclaimed", init=False)
     bead_id: str = ""
     alias: str = ""
+    title: str | None = None
 
 
 def _channel_name(workspace_id: str) -> str:
@@ -195,6 +205,7 @@ async def publish_bead_status_events(
     workspace_id: str,
     project_slug: str | None,
     status_changes: list[BeadStatusChange],
+    alias: str = "",
 ) -> None:
     """Publish BeadStatusChangedEvent for each status change."""
     for sc in status_changes:
@@ -205,6 +216,8 @@ async def publish_bead_status_events(
             repo=sc.repo or "",
             old_status=sc.old_status or "",
             new_status=sc.new_status,
+            title=sc.title,
+            alias=alias,
         )
         await publish_event(redis, event)
 

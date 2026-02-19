@@ -146,6 +146,7 @@ async def beads_upload(
             workspace_id=identity.agent_id,
             project_slug=identity.project_slug,
             status_changes=result.status_changes,
+            alias=identity.alias,
         )
 
     return {
@@ -269,6 +270,7 @@ async def beads_upload_jsonl(
             workspace_id=identity.agent_id,
             project_slug=identity.project_slug,
             status_changes=result.status_changes,
+            alias=identity.alias,
         )
 
     return {

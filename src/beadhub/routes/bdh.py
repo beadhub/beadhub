@@ -15,8 +15,11 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from pgdbm import AsyncDatabaseManager
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -360,6 +363,17 @@ async def _delete_claim(
             UUID(project_id),
             UUID(workspace_id),
         )
+
+
+async def _get_bead_title(beads_db: AsyncDatabaseManager, project_id: str, bead_id: str) -> str | None:
+    """Look up the title of a bead from the issues table."""
+    row = await beads_db.fetch_one(
+        "SELECT title FROM {{tables.beads_issues}} "
+        "WHERE project_id = $1 AND bead_id = $2 ORDER BY synced_at DESC LIMIT 1",
+        UUID(project_id),
+        bead_id,
+    )
+    return row["title"] if row else None
 
 
 async def ensure_repo(
@@ -738,6 +752,20 @@ async def sync(
     # Update claims based on the bd command that succeeded (best-effort).
     claim_conflict: Optional[dict[str, Any]] = None
     cmd, bead_id, status = _parse_command_line(payload.command_line or "")
+
+    # Lazy project_slug for event enrichment (only queried if needed).
+    _project_slug_cache: dict[str, str | None] = {}
+
+    async def _get_project_slug() -> str | None:
+        if "v" not in _project_slug_cache:
+            server_db = db_infra.get_manager("server")
+            row = await server_db.fetch_one(
+                "SELECT slug FROM {{tables.projects}} WHERE id = $1",
+                UUID(project_id),
+            )
+            _project_slug_cache["v"] = row["slug"] if row else None
+        return _project_slug_cache["v"]
+
     if bead_id:
         if cmd == "update" and status == "in_progress":
             claim_conflict = await _upsert_claim(
@@ -749,12 +777,15 @@ async def sync(
                 bead_id=bead_id,
             )
             if claim_conflict is None:
+                title = await _get_bead_title(beads_db, project_id, bead_id)
                 await publish_event(
                     redis,
                     BeadClaimedEvent(
                         workspace_id=payload.workspace_id,
+                        project_slug=await _get_project_slug(),
                         bead_id=bead_id,
                         alias=payload.alias,
+                        title=title,
                     ),
                 )
         elif cmd in ("close", "delete") or (cmd == "update" and status and status != "in_progress"):
@@ -764,12 +795,15 @@ async def sync(
                 workspace_id=payload.workspace_id,
                 bead_id=bead_id,
             )
+            title = await _get_bead_title(beads_db, project_id, bead_id)
             await publish_event(
                 redis,
                 BeadUnclaimedEvent(
                     workspace_id=payload.workspace_id,
+                    project_slug=await _get_project_slug(),
                     bead_id=bead_id,
                     alias=payload.alias,
+                    title=title,
                 ),
             )
 
@@ -782,12 +816,15 @@ async def sync(
                 workspace_id=payload.workspace_id,
                 bead_id=bid,
             )
+            title = await _get_bead_title(beads_db, project_id, bid)
             await publish_event(
                 redis,
                 BeadUnclaimedEvent(
                     workspace_id=payload.workspace_id,
+                    project_slug=await _get_project_slug(),
                     bead_id=bid,
                     alias=payload.alias,
+                    title=title,
                 ),
             )
 
@@ -808,6 +845,7 @@ async def sync(
             workspace_id=payload.workspace_id,
             project_slug=sender.project_slug,
             status_changes=result.status_changes,
+            alias=payload.alias,
         )
 
     # Update audit log (best-effort; don't fail the sync on logging issues).

@@ -17,8 +17,11 @@ def _jsonl(*rows: dict) -> str:
     return "\n".join(json.dumps(r) for r in rows) + "\n"
 
 
-async def _setup_project(client) -> tuple[str, str, str, str]:
-    """Create project and register workspace. Returns (project_id, repo_id, workspace_id, api_key)."""
+async def _setup_project(client) -> tuple[str, str, str, str, str]:
+    """Create project and register workspace.
+
+    Returns (project_id, repo_id, workspace_id, api_key, alias).
+    """
     project_slug = f"evpub-{uuid.uuid4().hex[:8]}"
 
     aweb_resp = await client.post(
@@ -41,7 +44,7 @@ async def _setup_project(client) -> tuple[str, str, str, str]:
     )
     assert reg_resp.status_code == 200, reg_resp.text
     data = reg_resp.json()
-    return data["project_id"], data["repo_id"], data["workspace_id"], api_key
+    return data["project_id"], data["repo_id"], data["workspace_id"], api_key, data["alias"]
 
 
 async def _collect_events(pubsub, max_events=10, first_timeout=2.0, next_timeout=0.2):
@@ -79,7 +82,7 @@ async def test_sync_publishes_bead_claimed_event(db_infra, redis_client_async):
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, _, workspace_id, api_key = await _setup_project(client)
+            _, _, workspace_id, api_key, _ = await _setup_project(client)
 
             pubsub = await _subscribe(redis_client_async, workspace_id)
             try:
@@ -108,6 +111,9 @@ async def test_sync_publishes_bead_claimed_event(db_infra, redis_client_async):
                 ), f"Expected 1 bead.claimed event, got {len(claimed_events)} in {events}"
                 assert claimed_events[0]["bead_id"] == "bd-1"
                 assert claimed_events[0]["workspace_id"] == workspace_id
+                # Enrichment: title from DB and project_slug
+                assert claimed_events[0]["title"] == "Test bead"
+                assert claimed_events[0]["project_slug"] is not None
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -119,7 +125,7 @@ async def test_sync_publishes_bead_unclaimed_event(db_infra, redis_client_async)
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, _, workspace_id, api_key = await _setup_project(client)
+            _, _, workspace_id, api_key, _ = await _setup_project(client)
             headers = {"Authorization": f"Bearer {api_key}"}
 
             # First, claim a bead
@@ -170,6 +176,9 @@ async def test_sync_publishes_bead_unclaimed_event(db_infra, redis_client_async)
                 ), f"Expected 1 bead.unclaimed event, got {len(unclaimed_events)} in {events}"
                 assert unclaimed_events[0]["bead_id"] == "bd-1"
                 assert unclaimed_events[0]["workspace_id"] == workspace_id
+                # Enrichment: title from DB and project_slug
+                assert unclaimed_events[0]["title"] == "Test bead"
+                assert unclaimed_events[0]["project_slug"] is not None
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -181,7 +190,7 @@ async def test_sync_publishes_unclaimed_events_for_deleted_ids(db_infra, redis_c
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, _, workspace_id, api_key = await _setup_project(client)
+            _, _, workspace_id, api_key, _ = await _setup_project(client)
             headers = {"Authorization": f"Bearer {api_key}"}
 
             # Create two beads with claims
@@ -267,7 +276,7 @@ async def test_sync_publishes_bead_status_changed_event(db_infra, redis_client_a
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, _, workspace_id, api_key = await _setup_project(client)
+            _, _, workspace_id, api_key, _ = await _setup_project(client)
 
             pubsub = await _subscribe(redis_client_async, workspace_id)
             try:
@@ -298,6 +307,9 @@ async def test_sync_publishes_bead_status_changed_event(db_infra, redis_client_a
                 assert sc_events[0]["old_status"] == ""
                 assert sc_events[0]["new_status"] == "open"
                 assert sc_events[0]["workspace_id"] == workspace_id
+                # Enrichment: title from BeadStatusChange and alias
+                assert sc_events[0]["title"] == "New bead"
+                assert sc_events[0]["alias"] == "test-agent"
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -309,7 +321,7 @@ async def test_beads_upload_publishes_bead_status_changed_event(db_infra, redis_
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, _, workspace_id, api_key = await _setup_project(client)
+            _, _, workspace_id, api_key, _ = await _setup_project(client)
 
             pubsub = await _subscribe(redis_client_async, workspace_id)
             try:
@@ -342,7 +354,7 @@ async def test_sync_no_events_when_no_status_changes(db_infra, redis_client_asyn
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, _, workspace_id, api_key = await _setup_project(client)
+            _, _, workspace_id, api_key, _ = await _setup_project(client)
             headers = {"Authorization": f"Bearer {api_key}"}
 
             # First sync to create the bead
