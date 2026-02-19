@@ -13,7 +13,7 @@ import {
 import { Badge } from "./ui/badge"
 import { Separator } from "./ui/separator"
 import { type ApiClient, type BeadIssue } from "../lib/api"
-import { cn } from "../lib/utils"
+import { cn, formatRelativeTime } from "../lib/utils"
 
 const statusStyles: Record<string, { dot: string; label: string }> = {
   open: { dot: "bg-green-500", label: "Open" },
@@ -35,19 +35,6 @@ const typeIcons: Record<string, string> = {
   task: "text-blue-400",
   epic: "text-purple-400",
   chore: "text-muted-foreground",
-}
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
-  const diffHour = Math.floor(diffMin / 60)
-
-  if (diffMin < 1) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  return date.toISOString().slice(0, 10)
 }
 
 interface IssueDetailSheetProps {

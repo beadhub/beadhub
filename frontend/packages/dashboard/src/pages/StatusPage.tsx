@@ -21,7 +21,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/toolti
 import { type ApiClient, type StatusResponse, type WorkspacePresence } from "../lib/api"
 import { useSSE, type SSEEvent } from "../hooks/useSSE"
 import { useStore } from "../hooks/useStore"
-import { cn } from "../lib/utils"
+import { cn, formatRelativeTime, formatEventDescription } from "../lib/utils"
 
 function StatCard({
   title,
@@ -84,10 +84,12 @@ function WorkspaceRow({
   workspace,
   workspaceInfo,
   showHumanName,
+  currentProjectSlug,
 }: {
   workspace: StatusResponse["agents"][0]
   workspaceInfo?: WorkspacePresence
   showHumanName: boolean
+  currentProjectSlug?: string
 }) {
   const statusColors: Record<string, string> = {
     active: "bg-success",
@@ -147,7 +149,7 @@ function WorkspaceRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-medium text-sm whitespace-nowrap">{workspace.alias}</p>
-            {workspaceInfo?.project_slug && (
+            {workspaceInfo?.project_slug && workspaceInfo.project_slug !== currentProjectSlug && (
               <span className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-xs">
                 {workspaceInfo.project_slug}
               </span>
@@ -176,7 +178,7 @@ function WorkspaceRow({
   )
 }
 
-function EventFeed({ events }: { events: SSEEvent[] }) {
+function EventFeed({ events, currentProjectSlug }: { events: SSEEvent[]; currentProjectSlug?: string }) {
   if (events.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground text-sm">
@@ -186,12 +188,16 @@ function EventFeed({ events }: { events: SSEEvent[] }) {
   }
 
   const eventTypeColors: Record<string, string> = {
-    "claim.created": "text-accent",
-    "claim.released": "text-muted-foreground",
+    "bead.claimed": "text-accent",
+    "bead.unclaimed": "text-muted-foreground",
+    "bead.status_changed": "text-primary",
+    "message.delivered": "text-info",
+    "message.acknowledged": "text-info",
+    "chat.message_sent": "text-info",
     "escalation.created": "text-warning",
     "escalation.responded": "text-success",
-    "message.delivered": "text-info",
-    "bead.status_changed": "text-primary",
+    "reservation.acquired": "text-muted-foreground",
+    "reservation.released": "text-muted-foreground",
   }
 
   return (
@@ -201,16 +207,23 @@ function EventFeed({ events }: { events: SSEEvent[] }) {
           key={`${event.timestamp}-${i}`}
           className="flex items-start gap-2 text-xs py-1.5 border-b border-dashed last:border-0"
         >
-          <span className="text-muted-foreground font-mono whitespace-nowrap">
-            {new Date(event.timestamp).toLocaleTimeString()}
-          </span>
-          {typeof event.project_slug === "string" && event.project_slug && (
-            <span className="px-1 py-0.5 bg-muted text-muted-foreground rounded text-[10px]">
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground font-mono whitespace-nowrap tabular-nums w-[4.5rem] text-right shrink-0">
+                {formatRelativeTime(event.timestamp)}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {new Date(event.timestamp).toLocaleString()}
+            </TooltipContent>
+          </Tooltip>
+          {typeof event.project_slug === "string" && event.project_slug && event.project_slug !== currentProjectSlug && (
+            <span className="px-1 py-0.5 bg-muted text-muted-foreground rounded text-[10px] shrink-0">
               {event.project_slug}
             </span>
           )}
-          <span className={cn("font-medium", eventTypeColors[event.type] || "")}>
-            {event.type}
+          <span className={cn("font-medium min-w-0", eventTypeColors[event.type] || "")}>
+            {formatEventDescription(event)}
           </span>
         </div>
       ))}
@@ -436,6 +449,7 @@ export function StatusPage() {
                           workspace={workspace}
                           workspaceInfo={workspaceById.get(workspace.workspace_id)}
                           showHumanName={!ownerFilter}
+                          currentProjectSlug={status?.workspace.project_slug}
                         />
                       ))}
                     </div>
@@ -474,7 +488,7 @@ export function StatusPage() {
               </CardHeader>
               <Separator />
               <CardContent className="pt-3">
-                <EventFeed events={events} />
+                <EventFeed events={events} currentProjectSlug={status?.workspace.project_slug} />
               </CardContent>
             </Card>
           </div>

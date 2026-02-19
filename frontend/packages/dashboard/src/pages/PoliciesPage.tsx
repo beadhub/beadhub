@@ -52,29 +52,12 @@ import {
   type RolePlaybook,
   type CreatePolicyResponse,
 } from "../lib/api"
-import { cn } from "../lib/utils"
+import { cn, formatRelativeTime } from "../lib/utils"
 import { Markdown } from "../components/Markdown"
 
 function isAdminWriteForbidden(error: unknown): boolean {
   const status = (error as { status?: unknown } | null)?.status
   return status === 401 || status === 403
-}
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  if (isNaN(date.getTime())) return "unknown"
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHour = Math.floor(diffMin / 60)
-  const diffDay = Math.floor(diffHour / 24)
-
-  if (diffSec < 60) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  if (diffDay < 7) return `${diffDay}d ago`
-  return date.toLocaleDateString()
 }
 
 function InvariantCard({ invariant }: { invariant: Invariant }) {

@@ -18,24 +18,7 @@ import { SendMessageDialog } from "../components/SendMessageDialog"
 import { Pagination } from "../components/Pagination"
 import { type ApiClient, type WorkspacePresence } from "../lib/api"
 import { useStore } from "../hooks/useStore"
-import { cn } from "../lib/utils"
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  if (isNaN(date.getTime())) {
-    return "unknown"
-  }
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHour = Math.floor(diffMin / 60)
-
-  if (diffSec < 60) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  return date.toLocaleDateString()
-}
+import { cn, formatRelativeTime } from "../lib/utils"
 
 const statusColors: Record<string, string> = {
   active: "bg-success",
