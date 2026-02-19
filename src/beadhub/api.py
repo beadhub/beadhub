@@ -62,7 +62,7 @@ def _make_standalone_lifespan():
             # Phase 2: Only assign to app.state after ALL initialization succeeds
             app.state.redis = redis
             app.state.db = default_db_infra
-            app.state.on_mutation = create_mutation_handler(redis)
+            app.state.on_mutation = create_mutation_handler(redis, default_db_infra)
 
         except Exception:
             # Log which phase failed
@@ -101,7 +101,7 @@ def _make_library_lifespan(db_infra: DatabaseInfra, redis: Redis):
         # Use externally provided connections - no initialization needed
         app.state.redis = redis
         app.state.db = db_infra
-        app.state.on_mutation = create_mutation_handler(redis)
+        app.state.on_mutation = create_mutation_handler(redis, db_infra)
 
         try:
             yield

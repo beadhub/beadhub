@@ -41,7 +41,11 @@ async def _subscribe(redis, workspace_id):
 
 
 async def _setup_two_agents(client):
-    """Create a project with two agents. Returns (ws_a, key_a, ws_b, key_b)."""
+    """Create a project with two agents. Returns (ws_a, key_a, ws_b, key_b).
+
+    Also sends a heartbeat for each agent to populate Redis presence,
+    which is needed for event enrichment (alias lookups).
+    """
     project_slug = f"mhook-{uuid.uuid4().hex[:8]}"
     repo_origin = f"git@github.com:test/mutation-hooks-{project_slug}.git"
 
@@ -68,6 +72,14 @@ async def _setup_two_agents(client):
     ws_a = reg_a.json()["workspace_id"]
     alias_a = reg_a.json()["alias"]
 
+    # Heartbeat A to populate Redis presence
+    hb_a = await client.post(
+        "/v1/workspaces/heartbeat",
+        headers={"Authorization": f"Bearer {key_a}"},
+        json={"workspace_id": ws_a, "alias": alias_a, "repo_origin": repo_origin},
+    )
+    assert hb_a.status_code == 200, hb_a.text
+
     # Agent B
     resp_b = await client.post(
         "/v1/init",
@@ -91,6 +103,14 @@ async def _setup_two_agents(client):
     ws_b = reg_b.json()["workspace_id"]
     alias_b = reg_b.json()["alias"]
 
+    # Heartbeat B to populate Redis presence
+    hb_b = await client.post(
+        "/v1/workspaces/heartbeat",
+        headers={"Authorization": f"Bearer {key_b}"},
+        json={"workspace_id": ws_b, "alias": alias_b, "repo_origin": repo_origin},
+    )
+    assert hb_b.status_code == 200, hb_b.text
+
     return ws_a, key_a, alias_a, ws_b, key_b, alias_b
 
 
@@ -105,7 +125,7 @@ async def test_message_sent_publishes_event(db_infra, redis_client_async):
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            ws_a, key_a, _, ws_b, _, alias_b = await _setup_two_agents(client)
+            ws_a, key_a, alias_a, ws_b, _, alias_b = await _setup_two_agents(client)
 
             # Subscribe to recipient's channel
             pubsub = await _subscribe(redis_client_async, ws_b)
@@ -126,6 +146,9 @@ async def test_message_sent_publishes_event(db_infra, redis_client_async):
                 assert len(msg_events) == 1, f"Expected 1 message.delivered event, got {msg_events}"
                 assert msg_events[0]["workspace_id"] == ws_b
                 assert msg_events[0]["subject"] == "Test subject"
+                # Enrichment: aliases resolved from presence
+                assert msg_events[0]["from_alias"] == alias_a
+                assert msg_events[0]["to_alias"] == alias_b
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -137,13 +160,13 @@ async def test_message_ack_publishes_event(db_infra, redis_client_async):
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            _, key_a, _, ws_b, key_b, alias_b = await _setup_two_agents(client)
+            _, key_a, alias_a, ws_b, key_b, alias_b = await _setup_two_agents(client)
 
-            # Send a message from A to B
+            # Send a message from A to B with a subject
             send_resp = await client.post(
                 "/v1/messages",
                 headers={"Authorization": f"Bearer {key_a}"},
-                json={"to_alias": alias_b, "body": "Ack test"},
+                json={"to_alias": alias_b, "subject": "Ack subject", "body": "Ack test"},
             )
             assert send_resp.status_code == 200, send_resp.text
             message_id = send_resp.json()["message_id"]
@@ -164,6 +187,9 @@ async def test_message_ack_publishes_event(db_infra, redis_client_async):
                 ), f"Expected 1 message.acknowledged event, got {ack_events}"
                 assert ack_events[0]["message_id"] == message_id
                 assert ack_events[0]["workspace_id"] == ws_b
+                # Enrichment: from_alias and subject from original message
+                assert ack_events[0]["from_alias"] == alias_a
+                assert ack_events[0]["subject"] == "Ack subject"
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -180,7 +206,7 @@ async def test_chat_message_publishes_event(db_infra, redis_client_async):
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            ws_a, key_a, _, _, _, alias_b = await _setup_two_agents(client)
+            ws_a, key_a, alias_a, _, _, alias_b = await _setup_two_agents(client)
 
             # Subscribe to sender's channel
             pubsub = await _subscribe(redis_client_async, ws_a)
@@ -203,6 +229,10 @@ async def test_chat_message_publishes_event(db_infra, redis_client_async):
                 ), f"Expected 1 chat.message_sent event, got {chat_events}"
                 assert chat_events[0]["session_id"] == session_id
                 assert chat_events[0]["workspace_id"] == ws_a
+                # Enrichment: aliases and preview from DB lookups
+                assert chat_events[0]["from_alias"] == alias_a
+                assert alias_b in chat_events[0]["to_aliases"]
+                assert chat_events[0]["preview"] == "Hey, can we talk?"
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -219,7 +249,7 @@ async def test_reservation_acquired_publishes_event(db_infra, redis_client_async
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            ws_a, key_a, _, _, _, _ = await _setup_two_agents(client)
+            ws_a, key_a, alias_a, _, _, _ = await _setup_two_agents(client)
 
             pubsub = await _subscribe(redis_client_async, ws_a)
             try:
@@ -237,6 +267,8 @@ async def test_reservation_acquired_publishes_event(db_infra, redis_client_async
                 ), f"Expected 1 reservation.acquired event, got {res_events}"
                 assert res_events[0]["workspace_id"] == ws_a
                 assert "src/main.py" in res_events[0]["paths"]
+                # Enrichment: alias resolved from presence
+                assert res_events[0]["alias"] == alias_a
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -248,7 +280,7 @@ async def test_reservation_released_publishes_event(db_infra, redis_client_async
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            ws_a, key_a, _, _, _, _ = await _setup_two_agents(client)
+            ws_a, key_a, alias_a, _, _, _ = await _setup_two_agents(client)
 
             # Acquire first
             resp = await client.post(
@@ -275,6 +307,8 @@ async def test_reservation_released_publishes_event(db_infra, redis_client_async
                 ), f"Expected 1 reservation.released event, got {rel_events}"
                 assert rel_events[0]["workspace_id"] == ws_a
                 assert "src/util.py" in rel_events[0]["paths"]
+                # Enrichment: alias resolved from presence
+                assert rel_events[0]["alias"] == alias_a
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -314,3 +348,39 @@ def test_translate_message_sent_maps_fields():
     assert event.from_workspace == "agent-a"
     assert event.message_id == "m1"
     assert event.subject == "hello"
+    # Enrichment fields default to empty before async enrichment
+    assert event.to_alias == ""
+    assert event.from_alias == ""
+
+
+def test_translate_message_ack_defaults_enrichment_fields():
+    """message.acknowledged has empty enrichment fields before async enrichment."""
+    event = _translate(
+        "message.acknowledged",
+        {"agent_id": "agent-b", "message_id": "m1"},
+    )
+    assert event.type == "message.acknowledged"
+    assert event.from_alias == ""
+    assert event.subject == ""
+
+
+def test_translate_chat_message_defaults_enrichment_fields():
+    """chat.message_sent has empty enrichment fields before async enrichment."""
+    event = _translate(
+        "chat.message_sent",
+        {"from_agent_id": "agent-a", "session_id": "s1", "message_id": "m1"},
+    )
+    assert event.type == "chat.message_sent"
+    assert event.from_alias == ""
+    assert event.to_aliases == []
+    assert event.preview == ""
+
+
+def test_translate_reservation_acquired_alias_defaults_empty():
+    """reservation.acquired alias defaults to empty before async enrichment."""
+    event = _translate(
+        "reservation.acquired",
+        {"holder_agent_id": "agent-a", "resource_key": "src/main.py", "ttl_seconds": 120},
+    )
+    assert event.type == "reservation.acquired"
+    assert event.alias == ""
