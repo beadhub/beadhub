@@ -247,7 +247,8 @@ function ScopeLabel({ workspace }: { workspace: StatusResponse["workspace"] }) {
 
 export function StatusPage() {
   const api = useApi<ApiClient>()
-  const { apiBasePath, repoFilter, ownerFilter, events, addEvent, clearEvents } = useStore()
+  const { apiBasePath, repoFilter, ownerFilter, events, clearEvents } = useStore()
+  const addEvent = useStore((s) => s.addEvent)
 
   const filters = repoFilter ? { repo: repoFilter } : undefined
 

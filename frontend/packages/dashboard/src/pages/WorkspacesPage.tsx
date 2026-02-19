@@ -75,14 +75,6 @@ function WorkspaceCard({
 
             {/* Metadata line */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {workspace.project_slug && (
-                <>
-                  <span className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded">
-                    {workspace.project_slug}
-                  </span>
-                  <span>·</span>
-                </>
-              )}
               {workspace.human_name && (
                 <>
                   <span className="flex items-center gap-1">
