@@ -413,18 +413,14 @@ async def test_on_mutation_publishes_event_when_enrichment_fails(redis_client_as
 
         events = await _collect_events(pubsub)
         ack_events = [e for e in events if e["type"] == "message.acknowledged"]
-        assert len(ack_events) == 1, (
-            "Event should be published even when enrichment fails"
-        )
+        assert len(ack_events) == 1, "Event should be published even when enrichment fails"
         assert ack_events[0]["workspace_id"] == "agent-b"
         # Enrichment fields should have defaults (enrichment failed)
         assert ack_events[0]["from_alias"] == ""
         assert ack_events[0]["subject"] == ""
 
         # Enrichment failure should be logged as a warning
-        enrichment_warnings = [
-            r for r in caplog.records if "Enrichment failed" in r.message
-        ]
+        enrichment_warnings = [r for r in caplog.records if "Enrichment failed" in r.message]
         assert len(enrichment_warnings) == 1
     finally:
         await pubsub.unsubscribe()

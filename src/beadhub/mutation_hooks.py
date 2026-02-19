@@ -48,7 +48,9 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
             try:
                 await _enrich(event, redis, db_infra)
             except Exception:
-                logger.warning("Enrichment failed for %s, publishing with defaults", event_type, exc_info=True)
+                logger.warning(
+                    "Enrichment failed for %s, publishing with defaults", event_type, exc_info=True
+                )
             await publish_event(redis, event)
         except Exception:
             logger.warning("Failed to publish event for %s", event_type, exc_info=True)

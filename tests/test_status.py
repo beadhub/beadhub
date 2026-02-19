@@ -433,9 +433,9 @@ async def test_status_stream_accepts_all_event_categories(db_infra, redis_client
                     timeout=0.5,
                 )
                 # If response returned quickly, it should not be a validation error
-                assert resp.status_code != 422, (
-                    f"All EventCategory values should be valid but got 422: {resp.text}"
-                )
+                assert (
+                    resp.status_code != 422
+                ), f"All EventCategory values should be valid but got 422: {resp.text}"
             except asyncio.TimeoutError:
                 # Stream started (passed validation) — expected
                 pass
