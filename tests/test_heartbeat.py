@@ -339,6 +339,56 @@ async def test_heartbeat_repo_mismatch(db_infra, init_workspace):
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_stores_timezone(db_infra, init_workspace):
+    """Heartbeat with timezone stores it in DB and Redis presence."""
+    redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)
+    try:
+        await redis.ping()
+    except Exception:
+        pytest.skip("Redis is not available")
+    await redis.flushdb()
+
+    try:
+        app = create_app(db_infra=db_infra, redis=redis, serve_frontend=False)
+        async with LifespanManager(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                init = await init_workspace(
+                    client,
+                    project_slug=f"hb-{uuid.uuid4().hex[:8]}",
+                    repo_origin=TEST_REPO_ORIGIN,
+                    alias="alice-agent",
+                    human_name="Test Human",
+                    role="agent",
+                )
+
+                resp = await client.post(
+                    "/v1/workspaces/heartbeat",
+                    headers=auth_headers(init["api_key"]),
+                    json=heartbeat_payload(init, timezone="Europe/Madrid"),
+                )
+                assert resp.status_code == 200, resp.text
+
+                # Verify DB column
+                server_db = db_infra.get_manager("server")
+                row = await server_db.fetch_one(
+                    "SELECT timezone FROM {{tables.workspaces}} WHERE workspace_id = $1",
+                    uuid.UUID(init["workspace_id"]),
+                )
+                assert row is not None
+                assert row["timezone"] == "Europe/Madrid"
+
+                # Verify Redis presence hash
+                presence_key = f"presence:{init['workspace_id']}"
+                presence = await redis.hgetall(presence_key)
+                assert presence.get("timezone") == "Europe/Madrid"
+    finally:
+        await redis.flushdb()
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_deleted_repo(db_infra, init_workspace):
     """Heartbeat when the repo was deleted returns 410."""
     redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)

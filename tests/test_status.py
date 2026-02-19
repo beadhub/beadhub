@@ -158,6 +158,56 @@ async def test_status_includes_claims(db_infra, redis_client_async):
 
 
 @pytest.mark.asyncio
+async def test_status_agents_include_enriched_fields(db_infra, redis_client_async):
+    """Status endpoint agents list includes human_name, current_branch, canonical_origin, timezone."""
+    from beadhub.presence import update_agent_presence
+
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            init = await _init_project_auth(
+                client,
+                project_slug=f"test-{uuid.uuid4().hex[:8]}",
+                repo_origin=TEST_REPO_ORIGIN,
+                alias="enriched-agent",
+                human_name="Alice Smith",
+            )
+            client.headers.update(_auth_headers(init["api_key"]))
+
+            # Populate presence with all enriched fields
+            await update_agent_presence(
+                redis_client_async,
+                workspace_id=init["workspace_id"],
+                alias="enriched-agent",
+                program="claude-code",
+                model="claude-4",
+                human_name="Alice Smith",
+                project_id=init["project_id"],
+                project_slug=init["project_slug"],
+                repo_id=init["repo_id"],
+                current_branch="feature/enrich",
+                canonical_origin="github.com/anthropic/beadhub",
+                timezone="Europe/Madrid",
+            )
+
+            resp = await client.get(
+                "/v1/status", params={"workspace_id": init["workspace_id"]}
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+
+            agents = data["agents"]
+            assert len(agents) == 1
+            agent = agents[0]
+            assert agent["human_name"] == "Alice Smith"
+            assert agent["current_branch"] == "feature/enrich"
+            assert agent["canonical_origin"] == "github.com/anthropic/beadhub"
+            assert agent["timezone"] == "Europe/Madrid"
+
+
+@pytest.mark.asyncio
 async def test_status_filters_by_repo_id(db_infra, redis_client_async):
     """Status endpoint filters workspaces by repo_id using secondary index."""
     from beadhub.presence import update_agent_presence

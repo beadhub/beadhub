@@ -387,9 +387,13 @@ async def status(
                 "workspace_id": ws_id,
                 "alias": presence.get("alias", ""),
                 "member": None if public_reader else (presence.get("member_email") or None),
+                "human_name": None if public_reader else (presence.get("human_name") or None),
                 "program": presence.get("program") or None,
                 "role": presence.get("role") or None,
                 "status": presence.get("status") or "unknown",
+                "current_branch": presence.get("current_branch") or None,
+                "canonical_origin": presence.get("canonical_origin") or None,
+                "timezone": presence.get("timezone") or None,
                 "current_issue": claims_by_workspace.get(ws_id),
                 "last_seen": presence.get("last_seen"),
             }

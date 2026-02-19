@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone as timezone_mod
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
@@ -79,6 +80,8 @@ async def update_agent_presence(
     status: str = "active",
     current_branch: Optional[str] = None,
     role: Optional[str] = None,
+    canonical_origin: Optional[str] = None,
+    timezone: Optional[str] = None,
     ttl_seconds: int = DEFAULT_PRESENCE_TTL_SECONDS,
 ) -> str:
     """
@@ -93,10 +96,12 @@ async def update_agent_presence(
         repo_id: UUID of the repo (for secondary index).
         current_branch: Optional branch name.
         role: Brief description of workspace purpose (max 50 chars).
+        canonical_origin: Normalized repo origin (e.g. "github.com/org/repo").
+        timezone: IANA timezone (e.g. "Europe/Madrid"). Preserved when None.
         ttl_seconds: How long until presence expires if not refreshed. Default 5 minutes.
     """
     key = _presence_key(workspace_id)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone_mod.utc).isoformat()
 
     fields = {
         "workspace_id": workspace_id,
@@ -112,8 +117,12 @@ async def update_agent_presence(
         "current_branch": current_branch or "",
         "last_seen": now,
     }
+    if canonical_origin is not None:
+        fields["canonical_origin"] = canonical_origin
     if role is not None and len(role) <= ROLE_MAX_LENGTH and is_valid_role(role):
         fields["role"] = normalize_role(role)
+    if timezone is not None:
+        fields["timezone"] = timezone
 
     await redis.hset(key, mapping=fields)
     await redis.expire(key, ttl_seconds)
