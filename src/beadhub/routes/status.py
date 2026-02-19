@@ -480,7 +480,7 @@ async def status_stream(
                Ignored when workspace_id is specified. Workspaces are ordered by
                recent activity, so the limit prioritizes active workspaces.
         event_types: Optional comma-separated filter for event categories.
-                     Valid categories: reservation, message, escalation, bead.
+                     Valid categories: reservation, message, escalation, bead, chat.
                      If not specified, all events are streamed.
 
     Returns:
@@ -554,12 +554,11 @@ async def status_stream(
     if event_types:
         event_type_set = {t.strip().lower() for t in event_types.split(",")}
         # Validate event types
-        valid_types = VALID_SSE_EVENT_TYPES
-        invalid = event_type_set - valid_types
+        invalid = event_type_set - VALID_SSE_EVENT_TYPES
         if invalid:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid event types: {invalid}. Valid types: {valid_types}",
+                detail=f"Invalid event types: {invalid}. Valid types: {sorted(VALID_SSE_EVENT_TYPES)}",
             )
 
     # Public readers should not receive private message/escalation/reservation data.
