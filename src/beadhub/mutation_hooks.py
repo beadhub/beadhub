@@ -83,8 +83,8 @@ async def _enrich(event: Event, redis: Redis, db_infra: DatabaseInfra) -> None:
 
     elif isinstance(event, ChatMessageEvent):
         event.from_alias = await _alias_for(redis, event.workspace_id)
+        aweb_db = db_infra.get_manager("aweb")
         if event.session_id and event.workspace_id:
-            aweb_db = db_infra.get_manager("aweb")
             participants = await aweb_db.fetch_all(
                 "SELECT alias FROM {{tables.chat_session_participants}} "
                 "WHERE session_id = $1 AND agent_id != $2",
@@ -93,7 +93,6 @@ async def _enrich(event: Event, redis: Redis, db_infra: DatabaseInfra) -> None:
             )
             event.to_aliases = [r["alias"] for r in participants]
         if event.message_id:
-            aweb_db = db_infra.get_manager("aweb")
             msg = await aweb_db.fetch_one(
                 "SELECT body FROM {{tables.chat_messages}} WHERE message_id = $1",
                 UUID(event.message_id),

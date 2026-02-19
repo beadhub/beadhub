@@ -378,6 +378,21 @@ async def _get_bead_title(
     return row["title"] if row else None
 
 
+async def _get_bead_titles(
+    beads_db: AsyncDatabaseManager, project_id: str, bead_ids: list[str]
+) -> dict[str, str | None]:
+    """Batch look up titles for multiple beads. Returns {bead_id: title}."""
+    if not bead_ids:
+        return {}
+    rows = await beads_db.fetch_all(
+        "SELECT DISTINCT ON (bead_id) bead_id, title FROM {{tables.beads_issues}} "
+        "WHERE project_id = $1 AND bead_id = ANY($2) ORDER BY bead_id, synced_at DESC",
+        UUID(project_id),
+        bead_ids,
+    )
+    return {row["bead_id"]: row["title"] for row in rows}
+
+
 async def ensure_repo(
     db: DatabaseInfra,
     project_id: UUID,
@@ -694,6 +709,7 @@ async def sync(
     inserted = 0
     updated = 0
     deleted = 0
+    deleted_titles: dict[str, str | None] = {}
 
     result: Optional[BeadsSyncResult] = None
     if mode == "full":
@@ -743,6 +759,8 @@ async def sync(
             updated = result.issues_updated
 
         if payload.deleted_ids:
+            # Pre-fetch titles before deletion so events can include them.
+            deleted_titles = await _get_bead_titles(beads_db, project_id, payload.deleted_ids)
             deleted = await delete_issues_by_id(
                 beads_db,
                 project_id=project_id,
@@ -756,17 +774,17 @@ async def sync(
     cmd, bead_id, status = _parse_command_line(payload.command_line or "")
 
     # Lazy project_slug for event enrichment (only queried if needed).
-    _project_slug_cache: dict[str, str | None] = {}
+    _slug_cache: list[str | None] = []  # empty = not yet fetched
 
     async def _get_project_slug() -> str | None:
-        if "v" not in _project_slug_cache:
+        if not _slug_cache:
             server_db = db_infra.get_manager("server")
             row = await server_db.fetch_one(
                 "SELECT slug FROM {{tables.projects}} WHERE id = $1",
                 UUID(project_id),
             )
-            _project_slug_cache["v"] = row["slug"] if row else None
-        return _project_slug_cache["v"]
+            _slug_cache.append(row["slug"] if row else None)
+        return _slug_cache[0]
 
     if bead_id:
         if cmd == "update" and status == "in_progress":
@@ -818,7 +836,6 @@ async def sync(
                 workspace_id=payload.workspace_id,
                 bead_id=bid,
             )
-            title = await _get_bead_title(beads_db, project_id, bid)
             await publish_event(
                 redis,
                 BeadUnclaimedEvent(
@@ -826,7 +843,7 @@ async def sync(
                     project_slug=await _get_project_slug(),
                     bead_id=bid,
                     alias=payload.alias,
-                    title=title,
+                    title=deleted_titles.get(bid),
                 ),
             )
 

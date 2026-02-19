@@ -111,8 +111,9 @@ async def test_sync_publishes_bead_claimed_event(db_infra, redis_client_async):
                 ), f"Expected 1 bead.claimed event, got {len(claimed_events)} in {events}"
                 assert claimed_events[0]["bead_id"] == "bd-1"
                 assert claimed_events[0]["workspace_id"] == workspace_id
-                # Enrichment: title from DB and project_slug
+                # Enrichment: title from DB, alias, and project_slug
                 assert claimed_events[0]["title"] == "Test bead"
+                assert claimed_events[0]["alias"] == "test-agent"
                 assert claimed_events[0]["project_slug"] is not None
             finally:
                 await pubsub.unsubscribe()
@@ -260,6 +261,10 @@ async def test_sync_publishes_unclaimed_events_for_deleted_ids(db_infra, redis_c
                     "bd-a",
                     "bd-b",
                 }, f"Expected unclaimed events for bd-a and bd-b, got {unclaimed_bead_ids}"
+                # Enrichment: titles pre-fetched before deletion
+                for ue in unclaimed_events:
+                    assert ue["title"] is not None, f"Expected title for {ue['bead_id']}"
+                    assert ue["project_slug"] is not None
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
