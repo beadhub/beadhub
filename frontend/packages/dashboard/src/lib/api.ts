@@ -267,6 +267,14 @@ export interface StatusResponse {
     last_seen: string
   }>
   claims: Claim[]
+  conflicts: Array<{
+    bead_id: string
+    claimants: Array<{
+      alias: string
+      human_name: string | null
+      workspace_id: string
+    }>
+  }>
   escalations_pending: number
   timestamp: string
 }

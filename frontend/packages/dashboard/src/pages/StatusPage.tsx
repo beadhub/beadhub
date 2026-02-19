@@ -103,38 +103,44 @@ function WorkspaceRow({
   const branch = workspace.current_branch ?? workspaceInfo?.branch
 
   // Build the metadata items for line 2
-  const metaItems: React.ReactNode[] = []
+  const metaItems: Array<{ key: string; node: React.ReactNode }> = []
   if (workspace.role) {
-    metaItems.push(<span key="role" className="italic shrink-0">{workspace.role}</span>)
+    metaItems.push({ key: "role", node: <span className="italic shrink-0">{workspace.role}</span> })
   } else if (workspace.program) {
-    metaItems.push(<span key="program" className="shrink-0">{workspace.program}</span>)
+    metaItems.push({ key: "program", node: <span className="shrink-0">{workspace.program}</span> })
   }
   if (showHumanName && humanName) {
     const humanSpan = (
-      <span key="human" className="flex items-center gap-1 shrink-0">
+      <span className="flex items-center gap-1 shrink-0">
         <User className="h-3 w-3" />
         {humanName}
       </span>
     )
     if (workspace.timezone) {
-      metaItems.push(
-        <Tooltip key="human" delayDuration={300}>
-          <TooltipTrigger asChild>{humanSpan}</TooltipTrigger>
-          <TooltipContent side="bottom">{workspace.timezone}</TooltipContent>
-        </Tooltip>
-      )
+      metaItems.push({
+        key: "human",
+        node: (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>{humanSpan}</TooltipTrigger>
+            <TooltipContent side="bottom">{workspace.timezone}</TooltipContent>
+          </Tooltip>
+        ),
+      })
     } else {
-      metaItems.push(humanSpan)
+      metaItems.push({ key: "human", node: humanSpan })
     }
   }
   if (repo) {
     const repoLabel = branch ? `${repo}:${branch}` : repo
-    metaItems.push(
-      <span key="repo" className="flex items-center gap-1 min-w-0">
-        <GitBranch className="h-3 w-3 shrink-0" />
-        <span className="truncate">{repoLabel}</span>
-      </span>
-    )
+    metaItems.push({
+      key: "repo",
+      node: (
+        <span className="flex items-center gap-1 min-w-0">
+          <GitBranch className="h-3 w-3 shrink-0" />
+          <span className="truncate">{repoLabel}</span>
+        </span>
+      ),
+    })
   }
 
   return (
@@ -157,10 +163,10 @@ function WorkspaceRow({
           </div>
           {metaItems.length > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-              {metaItems.map((item, i) => (
-                <React.Fragment key={i}>
+              {metaItems.map(({ key, node }, i) => (
+                <React.Fragment key={key}>
                   {i > 0 && <span className="shrink-0">·</span>}
-                  {item}
+                  {node}
                 </React.Fragment>
               ))}
             </div>
@@ -248,6 +254,8 @@ function ScopeLabel({ workspace }: { workspace: StatusResponse["workspace"] }) {
 export function StatusPage() {
   const api = useApi<ApiClient>()
   const { apiBasePath, repoFilter, ownerFilter, events, clearEvents } = useStore()
+  // Separate selector for stable function reference — prevents useCallback/useEffect
+  // cascade that reconnects SSE on every store update
   const addEvent = useStore((s) => s.addEvent)
 
   const filters = repoFilter ? { repo: repoFilter } : undefined
@@ -347,13 +355,9 @@ export function StatusPage() {
         </Card>
       ) : (
         <>
-          {/* Calculate conflicts (beads claimed by multiple workspaces) */}
+          {/* Urgent items and stats */}
           {(() => {
-            const claimsByBead = new Map<string, number>()
-            for (const claim of status?.claims ?? []) {
-              claimsByBead.set(claim.bead_id, (claimsByBead.get(claim.bead_id) ?? 0) + 1)
-            }
-            const conflictCount = Array.from(claimsByBead.values()).filter(c => c > 1).length
+            const conflictCount = status?.conflicts?.length ?? 0
             const hasUrgentItems = (status?.escalations_pending ?? 0) > 0 || conflictCount > 0
 
             return (

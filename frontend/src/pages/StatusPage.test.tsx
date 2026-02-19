@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { afterEach, describe, it, expect, vi } from "vitest"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
-import { ApiProvider } from "@beadhub/dashboard"
+import { ApiProvider, useStore } from "@beadhub/dashboard"
 import { TooltipProvider } from "@beadhub/dashboard/components/ui"
 import { StatusPage } from "@beadhub/dashboard/pages"
 import type { ApiClient, StatusResponse, WorkspacePresence } from "@beadhub/dashboard"
@@ -38,6 +38,7 @@ function makeStatus(
     workspace: { project_slug: "test-project", workspace_count: agents.length },
     agents,
     claims: [],
+    conflicts: [],
     escalations_pending: 0,
     timestamp: new Date().toISOString(),
   }
@@ -124,6 +125,10 @@ function renderStatusPage(api: ApiClient) {
 }
 
 describe("StatusPage workspace cards", () => {
+  afterEach(async () => {
+    await act(async () => { useStore.getState().clearFilters() })
+  })
+
   it("shows human_name from status endpoint", async () => {
     const agent = makeAgent({ human_name: "Juan Reyero" })
     const ws = makeWorkspace({ human_name: null })
@@ -219,5 +224,34 @@ describe("StatusPage workspace cards", () => {
       expect(screen.getByText("kate")).toBeInTheDocument()
     })
     expect(screen.queryByText("Juan Reyero")).not.toBeInTheDocument()
+  })
+
+  it("hides human_name when ownerFilter is active", async () => {
+    await act(async () => { useStore.getState().setOwnerFilter("Juan Reyero") })
+    const agent = makeAgent({ human_name: "Juan Reyero" })
+    const ws = makeWorkspace({ human_name: "Juan Reyero" })
+    const api = makeMockApi(makeStatus([agent]), [ws])
+    renderStatusPage(api)
+
+    await waitFor(() => {
+      expect(screen.getByText("kate")).toBeInTheDocument()
+    })
+    // human_name should be hidden because showHumanName = !ownerFilter = false
+    expect(screen.queryByText("Juan Reyero")).not.toBeInTheDocument()
+  })
+
+  it("falls back to workspaceInfo repo when status lacks canonical_origin", async () => {
+    const agent = makeAgent({ canonical_origin: null, current_branch: null })
+    const ws = makeWorkspace({ repo: "github.com/beadhub/beadhub", branch: "main" })
+    const api = makeMockApi(makeStatus([agent]), [ws])
+    renderStatusPage(api)
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText((_, el) =>
+          el?.textContent === "github.com/beadhub/beadhub:main"
+        ).length
+      ).toBeGreaterThanOrEqual(1)
+    })
   })
 })
