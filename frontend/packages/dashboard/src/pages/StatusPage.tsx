@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import React, { useCallback } from "react"
 import { Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useApi } from "../hooks/useApi"
@@ -7,6 +7,7 @@ import {
   GitBranch,
   AlertTriangle,
   Users,
+  User,
   Wifi,
   WifiOff,
   RefreshCw,
@@ -81,15 +82,44 @@ function StatCard({
 function WorkspaceRow({
   workspace,
   workspaceInfo,
+  showHumanName,
 }: {
   workspace: StatusResponse["agents"][0]
   workspaceInfo?: WorkspacePresence
+  showHumanName: boolean
 }) {
   const statusColors: Record<string, string> = {
     active: "bg-success",
     idle: "bg-muted-foreground",
     working: "bg-accent",
     unknown: "bg-muted-foreground",
+  }
+
+  // Build the metadata items for line 2
+  const metaItems: React.ReactNode[] = []
+  if (workspace.role) {
+    metaItems.push(<span key="role" className="italic shrink-0">{workspace.role}</span>)
+  } else if (workspace.program) {
+    metaItems.push(<span key="program" className="shrink-0">{workspace.program}</span>)
+  }
+  if (showHumanName && workspaceInfo?.human_name) {
+    metaItems.push(
+      <span key="human" className="flex items-center gap-1 shrink-0">
+        <User className="h-3 w-3" />
+        {workspaceInfo.human_name}
+      </span>
+    )
+  }
+  if (workspaceInfo?.repo) {
+    const repoLabel = workspaceInfo.branch
+      ? `${workspaceInfo.repo}:${workspaceInfo.branch}`
+      : workspaceInfo.repo
+    metaItems.push(
+      <span key="repo" className="flex items-center gap-1 min-w-0">
+        <GitBranch className="h-3 w-3 shrink-0" />
+        <span className="truncate">{repoLabel}</span>
+      </span>
+    )
   }
 
   return (
@@ -110,23 +140,16 @@ function WorkspaceRow({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-            {workspace.role && (
-              <span className="italic shrink-0">{workspace.role}</span>
-            )}
-            {workspace.program && !workspace.role && (
-              <span className="shrink-0">{workspace.program}</span>
-            )}
-            {workspaceInfo?.repo && !workspace.current_issue && (
-              <>
-                {(workspace.role || workspace.program) && <span className="shrink-0">·</span>}
-                <span className="flex items-center gap-1 min-w-0">
-                  <GitBranch className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{workspaceInfo.repo}</span>
-                </span>
-              </>
-            )}
-          </div>
+          {metaItems.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+              {metaItems.map((item, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <span className="shrink-0">·</span>}
+                  {item}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-4 text-sm shrink-0">
@@ -399,6 +422,7 @@ export function StatusPage() {
                           key={`${workspace.alias}-${idx}`}
                           workspace={workspace}
                           workspaceInfo={workspaceById.get(workspace.workspace_id)}
+                          showHumanName={!ownerFilter}
                         />
                       ))}
                     </div>
