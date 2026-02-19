@@ -466,6 +466,7 @@ class WorkspaceHeartbeatRequest(BaseModel):
         description="Brief description of workspace purpose",
     )
     current_branch: Optional[str] = Field(None, max_length=255)
+    timezone: Optional[str] = Field(None, max_length=64)
     hostname: Optional[str] = Field(None, max_length=255)
     workspace_path: Optional[str] = Field(None, max_length=1024)
     human_name: Optional[str] = Field(None, max_length=64)
@@ -504,6 +505,19 @@ class WorkspaceHeartbeatRequest(BaseModel):
         if not is_valid_role(v):
             raise ValueError(ROLE_ERROR_MESSAGE)
         return normalize_role(v)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone_field(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        import re
+
+        if not re.match(r"^[A-Za-z][A-Za-z0-9_+\-/]{0,63}$", v):
+            raise ValueError(
+                "timezone must be a valid IANA identifier (e.g. 'Europe/Madrid', 'America/New_York')"
+            )
+        return v
 
 
 class WorkspaceHeartbeatResponse(BaseModel):
@@ -567,11 +581,11 @@ async def heartbeat(
             )
 
     # Resolve repo_id without creating partial state in mismatch scenarios.
+    canonical_origin = canonicalize_git_url(payload.repo_origin)
     repo_id: UUID
     if existing and existing.get("repo_id"):
         repo_id = existing["repo_id"]
 
-        canonical_origin = canonicalize_git_url(payload.repo_origin)
         repo_row = await server_db.fetch_one(
             """
             SELECT canonical_origin
@@ -630,14 +644,17 @@ async def heartbeat(
             ) from e
         raise
 
-    if payload.current_branch is not None:
+    if payload.current_branch is not None or payload.timezone is not None:
         await server_db.execute(
             """
             UPDATE {{tables.workspaces}}
-            SET current_branch = $1, last_seen_at = NOW()
-            WHERE workspace_id = $2
+            SET current_branch = COALESCE($1, current_branch),
+                timezone = COALESCE($2, timezone),
+                last_seen_at = NOW()
+            WHERE workspace_id = $3
             """,
             payload.current_branch,
+            payload.timezone,
             UUID(payload.workspace_id),
         )
 
@@ -660,6 +677,8 @@ async def heartbeat(
             model=None,
             current_branch=payload.current_branch,
             role=payload.role,
+            canonical_origin=canonical_origin,
+            timezone=payload.timezone,
             ttl_seconds=settings.presence_ttl_seconds,
         )
     except Exception as e:
