@@ -14,7 +14,7 @@ from beadhub.auth import validate_workspace_id
 from beadhub.aweb_introspection import get_project_from_auth
 
 from ..db import DatabaseInfra, get_db_infra
-from ..events import stream_events_multi
+from ..events import EventCategory, stream_events_multi
 from ..internal_auth import is_public_reader
 from ..presence import (
     list_agent_presences_by_workspace_ids,
@@ -553,7 +553,7 @@ async def status_stream(
     if event_types:
         event_type_set = {t.strip().lower() for t in event_types.split(",")}
         # Validate event types
-        valid_types = {"reservation", "message", "escalation", "bead"}
+        valid_types = {c.value for c in EventCategory}
         invalid = event_type_set - valid_types
         if invalid:
             raise HTTPException(

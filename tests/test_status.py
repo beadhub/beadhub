@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 import pytest
@@ -379,3 +380,60 @@ async def test_status_shows_conflicts_for_multi_claim_beads(db_infra, redis_clie
             assert len(conflict["claimants"]) == 2
             aliases = {c["alias"] for c in conflict["claimants"]}
             assert aliases == {"claude-main", "claude-fe"}
+
+
+@pytest.mark.asyncio
+async def test_status_stream_rejects_invalid_event_type(db_infra, redis_client_async):
+    """SSE stream endpoint rejects unknown event type filters with 422."""
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            init = await _init_project_auth(
+                client,
+                project_slug=f"test-{uuid.uuid4().hex[:8]}",
+                repo_origin=TEST_REPO_ORIGIN,
+                alias="stream-test",
+                human_name="Test User",
+            )
+            resp = await client.get(
+                "/v1/status/stream",
+                params={"event_types": "not_a_real_type"},
+                headers=_auth_headers(init["api_key"]),
+            )
+            assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_status_stream_accepts_all_event_categories(db_infra, redis_client_async):
+    """SSE stream endpoint accepts all EventCategory values including 'chat'."""
+    from beadhub.events import EventCategory
+
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            init = await _init_project_auth(
+                client,
+                project_slug=f"test-{uuid.uuid4().hex[:8]}",
+                repo_origin=TEST_REPO_ORIGIN,
+                alias="stream-test",
+                human_name="Test User",
+            )
+            headers = _auth_headers(init["api_key"])
+
+            for category in EventCategory:
+                try:
+                    resp = await asyncio.wait_for(
+                        client.get(
+                            "/v1/status/stream",
+                            params={"event_types": category.value},
+                            headers=headers,
+                        ),
+                        timeout=0.5,
+                    )
+                    # If response returned quickly, it should not be a validation error
+                    assert resp.status_code != 422, (
+                        f"'{category.value}' should be a valid event type but got 422"
+                    )
+                except asyncio.TimeoutError:
+                    # Stream started (passed validation) — expected for valid types
+                    pass

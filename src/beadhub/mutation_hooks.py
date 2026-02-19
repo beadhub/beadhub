@@ -45,7 +45,10 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
             if not event.workspace_id:
                 logger.warning("Skipping %s event: no workspace_id in context", event_type)
                 return
-            await _enrich(event, redis, db_infra)
+            try:
+                await _enrich(event, redis, db_infra)
+            except Exception:
+                logger.warning("Enrichment failed for %s, publishing with defaults", event_type, exc_info=True)
             await publish_event(redis, event)
         except Exception:
             logger.warning("Failed to publish event for %s", event_type, exc_info=True)

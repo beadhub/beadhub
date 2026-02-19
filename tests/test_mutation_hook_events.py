@@ -384,3 +384,51 @@ def test_translate_reservation_acquired_alias_defaults_empty():
     )
     assert event.type == "reservation.acquired"
     assert event.alias == ""
+
+
+# =============================================================================
+# Enrichment failure resilience
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_on_mutation_publishes_event_when_enrichment_fails(redis_client_async, caplog):
+    """Events are still published when enrichment fails (e.g., transient DB error)."""
+    import logging
+    from unittest.mock import MagicMock
+
+    from beadhub.mutation_hooks import create_mutation_handler
+
+    broken_db_infra = MagicMock()
+    broken_db_infra.get_manager.side_effect = RuntimeError("DB connection lost")
+
+    handler = create_mutation_handler(redis_client_async, broken_db_infra)
+
+    pubsub = await _subscribe(redis_client_async, "agent-b")
+    try:
+        # message.acknowledged with a message_id triggers DB enrichment,
+        # which will fail due to broken db_infra
+        with caplog.at_level(logging.WARNING, logger="beadhub.mutation_hooks"):
+            await handler(
+                "message.acknowledged",
+                {"agent_id": "agent-b", "message_id": str(uuid.uuid4())},
+            )
+
+        events = await _collect_events(pubsub)
+        ack_events = [e for e in events if e["type"] == "message.acknowledged"]
+        assert len(ack_events) == 1, (
+            "Event should be published even when enrichment fails"
+        )
+        assert ack_events[0]["workspace_id"] == "agent-b"
+        # Enrichment fields should have defaults (enrichment failed)
+        assert ack_events[0]["from_alias"] == ""
+        assert ack_events[0]["subject"] == ""
+
+        # Enrichment failure should be logged as a warning
+        enrichment_warnings = [
+            r for r in caplog.records if "Enrichment failed" in r.message
+        ]
+        assert len(enrichment_warnings) == 1
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
