@@ -25,25 +25,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Pagination } from "../components/Pagination"
 import { type ApiClient, type InboxMessage } from "../lib/api"
-import { cn } from "../lib/utils"
+import { cn, formatRelativeTime } from "../lib/utils"
 
 interface MessageWithWorkspace extends InboxMessage {
   workspace_id: string
   workspace_alias?: string
   project_slug?: string
-}
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
-  const diffHour = Math.floor(diffMin / 60)
-
-  if (diffMin < 1) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  return date.toLocaleDateString()
 }
 
 function MessageCard({

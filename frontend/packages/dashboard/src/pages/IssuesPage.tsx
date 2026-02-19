@@ -32,7 +32,7 @@ import { IssueDetailSheet } from "../components/IssueDetailSheet"
 import { Pagination } from "../components/Pagination"
 import { type ApiClient, type BeadIssue } from "../lib/api"
 import { useStore } from "../hooks/useStore"
-import { cn } from "../lib/utils"
+import { cn, formatRelativeTime } from "../lib/utils"
 
 type SortedIssue = BeadIssue & {
   _indentLevel: number
@@ -72,19 +72,6 @@ const statusColors: Record<string, string> = {
   open: "bg-green-500",
   in_progress: "bg-blue-500",
   closed: "bg-purple-500",
-}
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
-  const diffHour = Math.floor(diffMin / 60)
-
-  if (diffMin < 1) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  return date.toISOString().slice(0, 10)
 }
 
 function IssueCard({

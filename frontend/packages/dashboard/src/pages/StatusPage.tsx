@@ -21,7 +21,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/toolti
 import { type ApiClient, type StatusResponse, type WorkspacePresence } from "../lib/api"
 import { useSSE, type SSEEvent } from "../hooks/useSSE"
 import { useStore } from "../hooks/useStore"
-import { cn } from "../lib/utils"
+import { cn, formatRelativeTime, formatEventDescription } from "../lib/utils"
 
 function StatCard({
   title,
@@ -84,10 +84,12 @@ function WorkspaceRow({
   workspace,
   workspaceInfo,
   showHumanName,
+  currentProjectSlug,
 }: {
   workspace: StatusResponse["agents"][0]
   workspaceInfo?: WorkspacePresence
   showHumanName: boolean
+  currentProjectSlug?: string
 }) {
   const statusColors: Record<string, string> = {
     active: "bg-success",
@@ -101,38 +103,44 @@ function WorkspaceRow({
   const branch = workspace.current_branch ?? workspaceInfo?.branch
 
   // Build the metadata items for line 2
-  const metaItems: React.ReactNode[] = []
+  const metaItems: Array<{ key: string; node: React.ReactNode }> = []
   if (workspace.role) {
-    metaItems.push(<span key="role" className="italic shrink-0">{workspace.role}</span>)
+    metaItems.push({ key: "role", node: <span className="italic shrink-0">{workspace.role}</span> })
   } else if (workspace.program) {
-    metaItems.push(<span key="program" className="shrink-0">{workspace.program}</span>)
+    metaItems.push({ key: "program", node: <span className="shrink-0">{workspace.program}</span> })
   }
   if (showHumanName && humanName) {
     const humanSpan = (
-      <span key="human" className="flex items-center gap-1 shrink-0">
+      <span className="flex items-center gap-1 shrink-0">
         <User className="h-3 w-3" />
         {humanName}
       </span>
     )
     if (workspace.timezone) {
-      metaItems.push(
-        <Tooltip key="human" delayDuration={300}>
-          <TooltipTrigger asChild>{humanSpan}</TooltipTrigger>
-          <TooltipContent side="bottom">{workspace.timezone}</TooltipContent>
-        </Tooltip>
-      )
+      metaItems.push({
+        key: "human",
+        node: (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>{humanSpan}</TooltipTrigger>
+            <TooltipContent side="bottom">{workspace.timezone}</TooltipContent>
+          </Tooltip>
+        ),
+      })
     } else {
-      metaItems.push(humanSpan)
+      metaItems.push({ key: "human", node: humanSpan })
     }
   }
   if (repo) {
     const repoLabel = branch ? `${repo}:${branch}` : repo
-    metaItems.push(
-      <span key="repo" className="flex items-center gap-1 min-w-0">
-        <GitBranch className="h-3 w-3 shrink-0" />
-        <span className="truncate">{repoLabel}</span>
-      </span>
-    )
+    metaItems.push({
+      key: "repo",
+      node: (
+        <span className="flex items-center gap-1 min-w-0">
+          <GitBranch className="h-3 w-3 shrink-0" />
+          <span className="truncate">{repoLabel}</span>
+        </span>
+      ),
+    })
   }
 
   return (
@@ -147,7 +155,7 @@ function WorkspaceRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-medium text-sm whitespace-nowrap">{workspace.alias}</p>
-            {workspaceInfo?.project_slug && (
+            {workspaceInfo?.project_slug && workspaceInfo.project_slug !== currentProjectSlug && (
               <span className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-xs">
                 {workspaceInfo.project_slug}
               </span>
@@ -155,10 +163,10 @@ function WorkspaceRow({
           </div>
           {metaItems.length > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-              {metaItems.map((item, i) => (
-                <React.Fragment key={i}>
+              {metaItems.map(({ key, node }, i) => (
+                <React.Fragment key={key}>
                   {i > 0 && <span className="shrink-0">·</span>}
-                  {item}
+                  {node}
                 </React.Fragment>
               ))}
             </div>
@@ -176,7 +184,7 @@ function WorkspaceRow({
   )
 }
 
-function EventFeed({ events }: { events: SSEEvent[] }) {
+function EventFeed({ events, currentProjectSlug }: { events: SSEEvent[]; currentProjectSlug?: string }) {
   if (events.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground text-sm">
@@ -186,12 +194,17 @@ function EventFeed({ events }: { events: SSEEvent[] }) {
   }
 
   const eventTypeColors: Record<string, string> = {
-    "claim.created": "text-accent",
-    "claim.released": "text-muted-foreground",
+    "bead.claimed": "text-accent",
+    "bead.unclaimed": "text-muted-foreground",
+    "bead.status_changed": "text-primary",
+    "message.delivered": "text-info",
+    "message.acknowledged": "text-info",
+    "chat.message_sent": "text-info",
     "escalation.created": "text-warning",
     "escalation.responded": "text-success",
-    "message.delivered": "text-info",
-    "bead.status_changed": "text-primary",
+    "reservation.acquired": "text-muted-foreground",
+    "reservation.released": "text-muted-foreground",
+    "reservation.renewed": "text-muted-foreground",
   }
 
   return (
@@ -201,16 +214,23 @@ function EventFeed({ events }: { events: SSEEvent[] }) {
           key={`${event.timestamp}-${i}`}
           className="flex items-start gap-2 text-xs py-1.5 border-b border-dashed last:border-0"
         >
-          <span className="text-muted-foreground font-mono whitespace-nowrap">
-            {new Date(event.timestamp).toLocaleTimeString()}
-          </span>
-          {typeof event.project_slug === "string" && event.project_slug && (
-            <span className="px-1 py-0.5 bg-muted text-muted-foreground rounded text-[10px]">
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground font-mono whitespace-nowrap tabular-nums w-[4.5rem] text-right shrink-0">
+                {formatRelativeTime(event.timestamp)}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {new Date(event.timestamp).toLocaleString()}
+            </TooltipContent>
+          </Tooltip>
+          {typeof event.project_slug === "string" && event.project_slug && event.project_slug !== currentProjectSlug && (
+            <span className="px-1 py-0.5 bg-muted text-muted-foreground rounded text-[10px] shrink-0">
               {event.project_slug}
             </span>
           )}
-          <span className={cn("font-medium", eventTypeColors[event.type] || "")}>
-            {event.type}
+          <span className={cn("font-medium min-w-0", eventTypeColors[event.type] || "")}>
+            {formatEventDescription(event)}
           </span>
         </div>
       ))}
@@ -233,7 +253,10 @@ function ScopeLabel({ workspace }: { workspace: StatusResponse["workspace"] }) {
 
 export function StatusPage() {
   const api = useApi<ApiClient>()
-  const { apiBasePath, repoFilter, ownerFilter, events, addEvent, clearEvents } = useStore()
+  const { apiBasePath, repoFilter, ownerFilter, events, clearEvents } = useStore()
+  // Separate selector for stable function reference — prevents useCallback/useEffect
+  // cascade that reconnects SSE on every store update
+  const addEvent = useStore((s) => s.addEvent)
 
   const filters = repoFilter ? { repo: repoFilter } : undefined
 
@@ -332,13 +355,9 @@ export function StatusPage() {
         </Card>
       ) : (
         <>
-          {/* Calculate conflicts (beads claimed by multiple workspaces) */}
+          {/* Urgent items and stats */}
           {(() => {
-            const claimsByBead = new Map<string, number>()
-            for (const claim of status?.claims ?? []) {
-              claimsByBead.set(claim.bead_id, (claimsByBead.get(claim.bead_id) ?? 0) + 1)
-            }
-            const conflictCount = Array.from(claimsByBead.values()).filter(c => c > 1).length
+            const conflictCount = status?.conflicts?.length ?? 0
             const hasUrgentItems = (status?.escalations_pending ?? 0) > 0 || conflictCount > 0
 
             return (
@@ -436,6 +455,7 @@ export function StatusPage() {
                           workspace={workspace}
                           workspaceInfo={workspaceById.get(workspace.workspace_id)}
                           showHumanName={!ownerFilter}
+                          currentProjectSlug={status?.workspace.project_slug}
                         />
                       ))}
                     </div>
@@ -474,7 +494,7 @@ export function StatusPage() {
               </CardHeader>
               <Separator />
               <CardContent className="pt-3">
-                <EventFeed events={events} />
+                <EventFeed events={events} currentProjectSlug={status?.workspace.project_slug} />
               </CardContent>
             </Card>
           </div>

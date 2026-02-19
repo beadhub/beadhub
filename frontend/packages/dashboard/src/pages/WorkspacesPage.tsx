@@ -18,24 +18,7 @@ import { SendMessageDialog } from "../components/SendMessageDialog"
 import { Pagination } from "../components/Pagination"
 import { type ApiClient, type WorkspacePresence } from "../lib/api"
 import { useStore } from "../hooks/useStore"
-import { cn } from "../lib/utils"
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  if (isNaN(date.getTime())) {
-    return "unknown"
-  }
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHour = Math.floor(diffMin / 60)
-
-  if (diffSec < 60) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  return date.toLocaleDateString()
-}
+import { cn, formatRelativeTime } from "../lib/utils"
 
 const statusColors: Record<string, string> = {
   active: "bg-success",
@@ -92,14 +75,6 @@ function WorkspaceCard({
 
             {/* Metadata line */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {workspace.project_slug && (
-                <>
-                  <span className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded">
-                    {workspace.project_slug}
-                  </span>
-                  <span>·</span>
-                </>
-              )}
               {workspace.human_name && (
                 <>
                   <span className="flex items-center gap-1">

@@ -21,7 +21,7 @@ export { useApi, useSSE, useStore, STORAGE_KEY } from './hooks'
 export type { SSEEvent, DashboardIdentity } from './hooks'
 
 // Shared utils + types
-export { cn } from './lib/utils'
+export { cn, formatRelativeTime, formatEventDescription } from './lib/utils'
 export type {
   ApiClient,
   WorkspacePresence,
