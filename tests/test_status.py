@@ -6,6 +6,7 @@ from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
 from beadhub.api import create_app
+from beadhub.internal_auth import _internal_auth_header_value
 
 TEST_REPO_ORIGIN = "git@github.com:anthropic/beadhub.git"
 
@@ -439,3 +440,92 @@ async def test_status_stream_accepts_all_event_categories(db_infra, redis_client
             except asyncio.TimeoutError:
                 # Stream started (passed validation) — expected
                 pass
+
+
+INTERNAL_AUTH_SECRET = "test-secret-for-public-reader"
+
+
+def _public_reader_headers(*, project_id: str) -> dict[str, str]:
+    """Build headers that make is_public_reader() return True."""
+    principal_id = str(uuid.uuid4())
+    actor_id = str(uuid.uuid4())
+    auth_value = _internal_auth_header_value(
+        secret=INTERNAL_AUTH_SECRET,
+        project_id=project_id,
+        principal_type="p",
+        principal_id=principal_id,
+        actor_id=actor_id,
+    )
+    return {
+        "X-BH-Auth": auth_value,
+        "X-Project-ID": project_id,
+        "X-Aweb-Actor-ID": actor_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_public_reader_sees_human_name_in_status(db_infra, redis_client_async, monkeypatch):
+    """Public readers should see human_name in agents, claims, and conflicts."""
+    from beadhub.presence import update_agent_presence
+
+    monkeypatch.setenv("BEADHUB_INTERNAL_AUTH_SECRET", INTERNAL_AUTH_SECRET)
+
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # Set up project with authenticated user
+            init = await _init_project_auth(
+                client,
+                project_slug=f"test-{uuid.uuid4().hex[:8]}",
+                repo_origin=TEST_REPO_ORIGIN,
+                alias="agent-a",
+                human_name="Alice Smith",
+            )
+
+            # Populate agent presence
+            await update_agent_presence(
+                redis_client_async,
+                workspace_id=init["workspace_id"],
+                alias="agent-a",
+                program="claude-code",
+                model="claude-4",
+                human_name="Alice Smith",
+                project_id=init["project_id"],
+                project_slug=init["project_slug"],
+                repo_id=init["repo_id"],
+            )
+
+            # Create a claim so we can check human_name there too
+            server_db = db_infra.get_manager("server")
+            await server_db.execute(
+                """
+                INSERT INTO {{tables.bead_claims}} (project_id, workspace_id, alias, human_name, bead_id)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                uuid.UUID(init["project_id"]),
+                uuid.UUID(init["workspace_id"]),
+                "agent-a",
+                "Alice Smith",
+                "bd-public-test",
+            )
+
+            # Now fetch status as a public reader
+            resp = await client.get(
+                "/v1/status",
+                headers=_public_reader_headers(project_id=init["project_id"]),
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+
+            # Agents should show human_name
+            assert len(data["agents"]) >= 1
+            agent = data["agents"][0]
+            assert agent["human_name"] == "Alice Smith"
+
+            # member (email) should still be hidden
+            assert agent["member"] is None
+
+            # Claims should show human_name
+            assert len(data["claims"]) >= 1
+            claim = data["claims"][0]
+            assert claim["human_name"] == "Alice Smith"

@@ -362,7 +362,7 @@ async def status(
             "bead_id": r["bead_id"],
             "workspace_id": str(r["workspace_id"]),
             "alias": r["alias"],
-            "human_name": "" if public_reader else r["human_name"],
+            "human_name": r["human_name"],
             "claimed_at": r["claimed_at"].isoformat(),
             "claimant_count": r["claimant_count"],
             "title": r["title"],
@@ -388,7 +388,7 @@ async def status(
                 "workspace_id": ws_id,
                 "alias": presence.get("alias", ""),
                 "member": None if public_reader else (presence.get("member_email") or None),
-                "human_name": None if public_reader else (presence.get("human_name") or None),
+                "human_name": presence.get("human_name") or None,
                 "program": presence.get("program") or None,
                 "role": presence.get("role") or None,
                 "status": presence.get("status") or "unknown",
@@ -411,7 +411,7 @@ async def status(
             seen_beads[bead_id].append(
                 {
                     "alias": claim["alias"],
-                    "human_name": "" if public_reader else claim["human_name"],
+                    "human_name": claim["human_name"],
                     "workspace_id": claim["workspace_id"],
                 }
             )

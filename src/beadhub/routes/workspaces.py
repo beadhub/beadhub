@@ -1260,7 +1260,6 @@ async def list_workspaces(
         hostname_value = row["hostname"]
         workspace_path_value = row["workspace_path"]
         if public_reader:
-            human_name_value = None
             member_email_value = None
             role_value = None
             hostname_value = None
@@ -1579,7 +1578,6 @@ async def list_team_workspaces(
         hostname_value = row["hostname"]
         workspace_path_value = row["workspace_path"]
         if public_reader:
-            human_name_value = None
             member_email_value = None
             role_value = None
             hostname_value = None
@@ -1677,7 +1675,7 @@ async def list_online_workspaces(
             WorkspaceInfo(
                 workspace_id=workspace_id,
                 alias=alias,
-                human_name=None if public_reader else presence.get("human_name"),
+                human_name=presence.get("human_name"),
                 project_slug=presence.get("project_slug"),
                 program=presence.get("program"),
                 model=presence.get("model"),

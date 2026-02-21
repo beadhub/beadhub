@@ -11,7 +11,6 @@ from beadhub.auth import validate_workspace_id
 from beadhub.aweb_introspection import get_project_from_auth
 
 from ..db import DatabaseInfra, get_db_infra
-from ..internal_auth import is_public_reader
 from ..pagination import encode_cursor, validate_pagination_params
 
 router = APIRouter(prefix="/v1", tags=["claims"])
@@ -62,7 +61,6 @@ async def list_claims(
         Includes has_more and next_cursor for pagination.
     """
     project_id = await get_project_from_auth(request, db_infra)
-    public_reader = is_public_reader(request)
 
     server_db = db_infra.get_manager("server")
 
@@ -127,7 +125,7 @@ async def list_claims(
             bead_id=row["bead_id"],
             workspace_id=str(row["workspace_id"]),
             alias=row["alias"],
-            human_name="" if public_reader else row["human_name"],
+            human_name=row["human_name"],
             claimed_at=row["claimed_at"].isoformat(),
             project_id=str(row["project_id"]),
         )
