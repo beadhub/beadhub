@@ -492,7 +492,6 @@ async def status_stream(
         ```
     """
     effective_project_id = await get_project_from_auth(request, db_infra)
-    public_reader = is_public_reader(request)
 
     # Determine which workspace_ids to subscribe to
     workspace_ids: List[str] = []
@@ -561,11 +560,6 @@ async def status_stream(
                 status_code=422,
                 detail=f"Invalid event types: {invalid}. Valid types: {valid_types}",
             )
-
-    # Public readers should not receive private message/escalation/reservation data.
-    # Reservation events include file paths; keep public streams bead-only.
-    if public_reader:
-        event_type_set = {"bead"}
 
     return StreamingResponse(
         stream_events_multi(

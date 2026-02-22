@@ -529,3 +529,46 @@ async def test_public_reader_sees_human_name_in_status(db_infra, redis_client_as
             assert len(data["claims"]) >= 1
             claim = data["claims"][0]
             assert claim["human_name"] == "Alice Smith"
+
+
+@pytest.mark.asyncio
+async def test_public_reader_sse_receives_all_event_types(redis_client_async):
+    """Public readers should receive non-bead events (message, chat, etc.) on SSE stream.
+
+    Tests the stream_events_multi generator directly: a message event published
+    to a workspace channel must be yielded when the event_types filter includes
+    'message' (the old public_reader filter would have overridden this to {'bead'}).
+    """
+    from beadhub.events import MessageDeliveredEvent, publish_event, stream_events_multi
+
+    workspace_id = str(uuid.uuid4())
+
+    async def publish_after_delay():
+        await asyncio.sleep(0.3)
+        event = MessageDeliveredEvent(
+            workspace_id=workspace_id,
+            from_workspace="sender-id",
+            from_alias="bob",
+            to_alias="sse-public",
+            message_id=str(uuid.uuid4()),
+            subject="hello",
+        )
+        await publish_event(redis_client_async, event)
+
+    received: list[str] = []
+    publish_task = asyncio.create_task(publish_after_delay())
+
+    async for sse_line in stream_events_multi(
+        redis_client_async,
+        [workspace_id],
+        {"message"},  # non-bead filter — previously blocked for public readers
+    ):
+        received.append(sse_line)
+        if sse_line.startswith("data:"):
+            break
+
+    await publish_task
+
+    data_lines = [line for line in received if line.startswith("data:")]
+    assert len(data_lines) == 1, f"Expected message event, got: {received}"
+    assert "message.delivered" in data_lines[0]
