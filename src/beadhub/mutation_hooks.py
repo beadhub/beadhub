@@ -22,7 +22,7 @@ from .events import (
     ReservationReleasedEvent,
     publish_event,
 )
-from .presence import get_agent_presence, get_workspace_project_slug
+from .presence import clear_workspace_presence, get_agent_presence, get_workspace_project_slug
 
 if TYPE_CHECKING:
     from .db import DatabaseInfra
@@ -38,6 +38,14 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
     """
 
     async def on_mutation(event_type: str, context: dict) -> None:
+        # Side-effect hooks (cascades that modify state).
+        # These run before SSE translation and do NOT prevent SSE publication.
+        if event_type == "agent.deregistered":
+            try:
+                await _cascade_agent_deregistered(redis, db_infra, context)
+            except Exception:
+                logger.warning("Failed to cascade agent.deregistered", exc_info=True)
+
         try:
             event = _translate(event_type, context)
             if event is None:
@@ -56,6 +64,69 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
             logger.warning("Failed to publish event for %s", event_type, exc_info=True)
 
     return on_mutation
+
+
+async def _cascade_agent_deregistered(
+    redis: Redis, db_infra: "DatabaseInfra", context: dict
+) -> None:
+    """Cascade agent deregistration to workspace cleanup.
+
+    workspace_id = agent_id (v1 mapping). Soft-deletes the workspace,
+    releases bead claims, and clears presence from Redis.
+
+    Note: agent.retired is intentionally NOT cascaded here. Retired agents
+    designate a successor and their workspace data may be needed for handoff.
+    """
+    agent_id = context.get("agent_id", "").strip()
+    if not agent_id:
+        return
+
+    try:
+        agent_uuid = UUID(agent_id)
+    except ValueError:
+        logger.warning("agent.deregistered event has non-UUID agent_id: %r", agent_id)
+        return
+
+    server_db = db_infra.get_manager("server")
+
+    # Check if a workspace exists for this agent (workspace_id = agent_id)
+    workspace = await server_db.fetch_one(
+        """
+        SELECT workspace_id, alias
+        FROM {{tables.workspaces}}
+        WHERE workspace_id = $1 AND deleted_at IS NULL
+        """,
+        agent_uuid,
+    )
+    if workspace is None:
+        return
+
+    # Soft-delete the workspace and release bead claims atomically
+    async with server_db.transaction() as tx:
+        await tx.execute(
+            """
+            UPDATE {{tables.workspaces}}
+            SET deleted_at = NOW()
+            WHERE workspace_id = $1
+            """,
+            agent_uuid,
+        )
+        await tx.execute(
+            """
+            DELETE FROM {{tables.bead_claims}}
+            WHERE workspace_id = $1
+            """,
+            agent_uuid,
+        )
+
+    # Clear presence from Redis (best-effort, not transactional with SQL)
+    await clear_workspace_presence(redis, [agent_id])
+
+    logger.info(
+        "Cascaded agent deregistration to workspace %s (alias=%s)",
+        agent_id,
+        workspace["alias"],
+    )
 
 
 async def _alias_for(redis: Redis, workspace_id: str) -> str:
