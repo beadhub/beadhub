@@ -106,6 +106,11 @@ class AgentView(BaseModel):
     status: str = "offline"
     last_seen: Optional[str] = None
     online: bool = False
+    did: Optional[str] = None
+    custody: Optional[str] = None
+    lifetime: str = "persistent"
+    lifecycle_status: str = "active"
+    access_mode: str = "open"
 
 
 class ListAgentsResponse(BaseModel):
@@ -188,7 +193,8 @@ async def list_agents(
     aweb_db = db_infra.get_manager("aweb")
     rows = await aweb_db.fetch_all(
         """
-        SELECT agent_id, alias, human_name, agent_type
+        SELECT agent_id, alias, human_name, agent_type,
+               did, custody, lifetime, status, access_mode
         FROM {{tables.agents}}
         WHERE project_id = $1 AND deleted_at IS NULL
         ORDER BY alias ASC
@@ -221,6 +227,11 @@ async def list_agents(
                 status=status,
                 last_seen=last_seen,
                 online=online,
+                did=(r.get("did") or None),
+                custody=(r.get("custody") or None),
+                lifetime=r["lifetime"],
+                lifecycle_status=r["status"],
+                access_mode=r["access_mode"],
             )
         )
 

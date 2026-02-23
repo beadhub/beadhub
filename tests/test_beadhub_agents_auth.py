@@ -64,6 +64,17 @@ async def test_beadhub_agents_list_scoped_by_api_key(db_infra):
                 assert "agent-a" in aliases_a
                 assert "agent-b" not in aliases_a
 
+                # Verify identity fields are present
+                agent_a = next(
+                    a for a in list_a.json()["agents"] if a["alias"] == "agent-a"
+                )
+                assert agent_a["did"] is not None
+                assert agent_a["did"].startswith("did:key:z")
+                assert agent_a["custody"] == "custodial"
+                assert agent_a["lifetime"] == "ephemeral"
+                assert agent_a["lifecycle_status"] == "active"
+                assert agent_a["access_mode"] == "open"
+
                 list_b = await client.get("/v1/agents", headers=_auth_headers(api_key_b))
                 assert list_b.status_code == 200, list_b.text
                 aliases_b = [a.get("alias") for a in (list_b.json().get("agents") or [])]
