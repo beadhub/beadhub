@@ -21,9 +21,7 @@ async def test_custody_key_enables_signing(monkeypatch, db_infra, redis_client_a
 
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             init = await client.post(
                 "/v1/init",
                 json={
@@ -58,9 +56,7 @@ async def test_without_custody_key_no_signing(monkeypatch, db_infra, redis_clien
 
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             init = await client.post(
                 "/v1/init",
                 json={

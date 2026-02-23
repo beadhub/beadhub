@@ -14,15 +14,11 @@ def _auth_headers(api_key: str) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_deregistered_agent_rejected_on_workspace_register(
-    db_infra, redis_client_async
-):
+async def test_deregistered_agent_rejected_on_workspace_register(db_infra, redis_client_async):
     """A deregistered agent cannot register a workspace."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             init = await client.post(
                 "/v1/init",
                 json={
@@ -37,9 +33,7 @@ async def test_deregistered_agent_rejected_on_workspace_register(
             api_key = init.json()["api_key"]
 
             # Deregister the agent
-            dereg = await client.delete(
-                "/v1/agents/me", headers=_auth_headers(api_key)
-            )
+            dereg = await client.delete("/v1/agents/me", headers=_auth_headers(api_key))
             assert dereg.status_code == 200, dereg.text
 
             # Attempt to register a workspace — should be rejected

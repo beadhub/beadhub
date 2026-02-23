@@ -18,9 +18,7 @@ async def test_deregister_cascades_to_workspace_soft_delete(db_infra, redis_clie
     """When an ephemeral agent deregisters, its workspace is soft-deleted."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # Create an ephemeral agent with a workspace (repo_origin triggers workspace creation)
             init = await client.post(
                 "/v1/init",
@@ -67,9 +65,7 @@ async def test_deregister_without_workspace_is_noop(db_infra, redis_client_async
     """Agent deregister without a corresponding workspace does not error."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # Create agent WITHOUT repo_origin (no workspace created)
             init = await client.post(
                 "/v1/init",

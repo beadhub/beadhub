@@ -65,9 +65,7 @@ async def test_beadhub_agents_list_scoped_by_api_key(db_infra):
                 assert "agent-b" not in aliases_a
 
                 # Verify identity fields are present
-                agent_a = next(
-                    a for a in list_a.json()["agents"] if a["alias"] == "agent-a"
-                )
+                agent_a = next(a for a in list_a.json()["agents"] if a["alias"] == "agent-a")
                 assert agent_a["did"] is not None
                 assert agent_a["did"].startswith("did:key:z")
                 assert agent_a["custody"] == "custodial"

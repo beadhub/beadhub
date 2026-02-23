@@ -18,9 +18,7 @@ async def test_agent_log_endpoint_accessible(db_infra, redis_client_async):
     """GET /v1/agents/me/log returns the agent's audit log."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             init = await client.post(
                 "/v1/init",
                 json={
@@ -32,9 +30,7 @@ async def test_agent_log_endpoint_accessible(db_infra, redis_client_async):
             assert init.status_code == 200, init.text
             api_key = init.json()["api_key"]
 
-            resp = await client.get(
-                "/v1/agents/me/log", headers=_auth_headers(api_key)
-            )
+            resp = await client.get("/v1/agents/me/log", headers=_auth_headers(api_key))
             assert resp.status_code == 200, resp.text
             data = resp.json()
             assert "log" in data
@@ -49,9 +45,7 @@ async def test_ephemeral_agent_deregister(db_infra, redis_client_async):
     """DELETE /v1/agents/me deregisters an ephemeral agent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             init = await client.post(
                 "/v1/init",
                 json={
@@ -64,18 +58,14 @@ async def test_ephemeral_agent_deregister(db_infra, redis_client_async):
             assert init.status_code == 200, init.text
             api_key = init.json()["api_key"]
 
-            resp = await client.delete(
-                "/v1/agents/me", headers=_auth_headers(api_key)
-            )
+            resp = await client.delete("/v1/agents/me", headers=_auth_headers(api_key))
             assert resp.status_code == 200, resp.text
             data = resp.json()
             assert data["status"] == "deregistered"
             assert data["agent_id"] == init.json()["agent_id"]
 
             # Agent should no longer appear in the list (soft-deleted)
-            list_resp = await client.get(
-                "/v1/agents", headers=_auth_headers(api_key)
-            )
+            list_resp = await client.get("/v1/agents", headers=_auth_headers(api_key))
             assert list_resp.status_code == 200, list_resp.text
             aliases = [a["alias"] for a in list_resp.json().get("agents", [])]
             assert "dereg-agent" not in aliases
@@ -86,9 +76,7 @@ async def test_patch_agent_access_mode(db_infra, redis_client_async):
     """PATCH /v1/agents/me updates access_mode."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             init = await client.post(
                 "/v1/init",
                 json={
@@ -110,11 +98,7 @@ async def test_patch_agent_access_mode(db_infra, redis_client_async):
             assert data["access_mode"] == "contacts_only"
 
             # Verify persisted by reading agent list
-            list_resp = await client.get(
-                "/v1/agents", headers=_auth_headers(api_key)
-            )
+            list_resp = await client.get("/v1/agents", headers=_auth_headers(api_key))
             assert list_resp.status_code == 200, list_resp.text
-            agent = next(
-                a for a in list_resp.json()["agents"] if a["alias"] == "patch-agent"
-            )
+            agent = next(a for a in list_resp.json()["agents"] if a["alias"] == "patch-agent")
             assert agent["access_mode"] == "contacts_only"
