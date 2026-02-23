@@ -109,7 +109,7 @@ class AgentView(BaseModel):
     did: Optional[str] = None
     custody: Optional[str] = None
     lifetime: str = "persistent"
-    lifecycle_status: str = "active"
+    identity_status: str = "active"
     access_mode: str = "open"
 
 
@@ -230,7 +230,7 @@ async def list_agents(
                 did=(r.get("did") or None),
                 custody=(r.get("custody") or None),
                 lifetime=r["lifetime"],
-                lifecycle_status=r["status"],
+                identity_status=r["status"],
                 access_mode=r["access_mode"],
             )
         )

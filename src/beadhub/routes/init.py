@@ -273,6 +273,7 @@ async def init(
         human_name=payload.human_name or "",
         agent_type=payload.agent_type,
         lifetime=payload.lifetime,
+        # custody=None → aweb defaults to "custodial" (server holds the signing key)
         custody=payload.custody,
     )
 

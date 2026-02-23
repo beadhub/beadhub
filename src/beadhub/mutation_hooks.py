@@ -44,7 +44,7 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
             try:
                 await _cascade_agent_deregistered(redis, db_infra, context)
             except Exception:
-                logger.warning("Failed to cascade agent.deregistered", exc_info=True)
+                logger.error("Failed to cascade agent.deregistered", exc_info=True)
 
         try:
             event = _translate(event_type, context)

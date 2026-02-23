@@ -70,7 +70,7 @@ async def test_beadhub_agents_list_scoped_by_api_key(db_infra):
                 assert agent_a["did"].startswith("did:key:z")
                 assert agent_a["custody"] == "custodial"
                 assert agent_a["lifetime"] == "ephemeral"
-                assert agent_a["lifecycle_status"] == "active"
+                assert agent_a["identity_status"] == "active"
                 assert agent_a["access_mode"] == "open"
 
                 list_b = await client.get("/v1/agents", headers=_auth_headers(api_key_b))
