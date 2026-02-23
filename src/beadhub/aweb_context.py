@@ -15,6 +15,10 @@ class AwebIdentity:
     agent_id: str
     alias: str
     human_name: str
+    did: str | None = None
+    custody: str | None = None
+    lifetime: str = "persistent"
+    status: str = "active"
 
 
 async def resolve_aweb_identity(request: Request, db) -> AwebIdentity:
@@ -35,7 +39,7 @@ async def resolve_aweb_identity(request: Request, db) -> AwebIdentity:
     aweb_db = db.get_manager("aweb")
     agent = await aweb_db.fetch_one(
         """
-        SELECT alias, human_name
+        SELECT alias, human_name, did, custody, lifetime, status
         FROM {{tables.agents}}
         WHERE agent_id = $1 AND deleted_at IS NULL
         """,
@@ -62,4 +66,8 @@ async def resolve_aweb_identity(request: Request, db) -> AwebIdentity:
         agent_id=agent_id,
         alias=agent["alias"],
         human_name=agent.get("human_name") or "",
+        did=agent.get("did"),
+        custody=agent.get("custody"),
+        lifetime=agent.get("lifetime") or "persistent",
+        status=agent.get("status") or "active",
     )
