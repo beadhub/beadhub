@@ -30,6 +30,7 @@ from .routes.mcp import router as mcp_router
 from .routes.policies import router as policies_router
 from .routes.status import router as status_router
 from .routes.subscriptions import router as subscriptions_router
+from .routes.dashboard import router as dashboard_router
 from .routes.workspaces import router as workspaces_router
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,9 @@ def create_app(
             healthy = False
 
         return {"status": "ok" if healthy else "unhealthy", "checks": checks}
+
+    # Dashboard routes (registered early to override aweb chat send-message)
+    app.include_router(dashboard_router)
 
     # aweb protocol routes (BeadHub is an aweb server).
     # Note: BeadHub overrides `/v1/init` with an extended init endpoint.
