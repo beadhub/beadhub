@@ -541,6 +541,7 @@ async def start_chat_session(
         from_alias=sender_alias,
         to_aliases=to_aliases,
         preview=payload.message[:80],
+        project_id=project_id,
     )
     await publish_event(redis, event)
 
@@ -658,6 +659,7 @@ async def send_chat_message(
         from_alias=sender_alias,
         to_aliases=other_aliases,
         preview=payload.body[:80],
+        project_id=project_id,
     )
     await publish_event(redis, event)
 

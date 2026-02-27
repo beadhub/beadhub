@@ -68,7 +68,8 @@ async function handleChatMessage(
   markRelayed(event.message_id, echoTtlMs);
 
   // Fetch full message body (event.preview is truncated to 80 chars)
-  const messages = await getSessionMessages(event.session_id, 1);
+  // Use event.project_id so cross-project sessions resolve correctly.
+  const messages = await getSessionMessages(event.session_id, 1, event.project_id || undefined);
   const latest = messages.at(-1);
   if (!latest) {
     console.warn(`[bridge] No messages found for session ${event.session_id}`);
@@ -78,7 +79,7 @@ async function handleChatMessage(
   // Double-check this is the message we expect
   if (latest.message_id !== event.message_id) {
     // Race condition: a newer message was sent. Fetch more to find ours.
-    const all = await getSessionMessages(event.session_id, 20);
+    const all = await getSessionMessages(event.session_id, 20, event.project_id || undefined);
     const target = all.find((m) => m.message_id === event.message_id);
     if (!target) {
       console.warn(`[bridge] Could not find message ${event.message_id}`);
