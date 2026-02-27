@@ -156,3 +156,5 @@ llmring-server
 .playwright-mcp/
 .env.beadhub
 .aw/
+node_modules/
+bun.lock

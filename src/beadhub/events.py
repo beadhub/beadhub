@@ -142,6 +142,7 @@ class ChatMessageEvent(Event):
     from_alias: str = ""
     to_aliases: list[str] = field(default_factory=list)
     preview: str = ""
+    project_id: str = ""
 
 
 @dataclass

@@ -22,7 +22,7 @@ from .events import (
     ReservationReleasedEvent,
     publish_event,
 )
-from .presence import clear_workspace_presence, get_agent_presence, get_workspace_project_slug
+from .presence import clear_workspace_presence, get_agent_presence, get_workspace_project_id, get_workspace_project_slug
 
 if TYPE_CHECKING:
     from .db import DatabaseInfra
@@ -176,6 +176,7 @@ async def _enrich(event: Event, redis: Redis, db_infra: DatabaseInfra) -> None:
             if msg and msg["body"]:
                 event.preview = msg["body"][:80]
         event.project_slug = await get_workspace_project_slug(redis, event.workspace_id)
+        event.project_id = await get_workspace_project_id(redis, event.workspace_id) or ""
 
     elif isinstance(event, (ReservationAcquiredEvent, ReservationReleasedEvent)):
         event.alias = await _alias_for(redis, event.workspace_id)
