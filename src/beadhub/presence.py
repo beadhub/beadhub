@@ -467,6 +467,26 @@ async def get_workspace_project_slug(
     return slug if slug else None
 
 
+async def get_workspace_project_id(
+    redis: Redis,
+    workspace_id: str,
+) -> Optional[str]:
+    """Get the project_id UUID for a workspace from its presence data.
+
+    Args:
+        redis: Redis client.
+        workspace_id: Workspace UUID.
+
+    Returns:
+        project_id UUID string if available, None otherwise.
+    """
+    data = await redis.hget(_presence_key(workspace_id), "project_id")
+    if not data:
+        return None
+    project_id = data.decode("utf-8") if isinstance(data, bytes) else data
+    return project_id if project_id else None
+
+
 async def clear_workspace_presence(
     redis: Redis,
     workspace_ids: List[str],

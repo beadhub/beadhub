@@ -4,6 +4,7 @@ export interface ChatMessageEvent {
   type: "chat.message_sent";
   timestamp: string;
   project_slug: string | null;
+  project_id: string;
   session_id: string;
   message_id: string;
   from_alias: string;

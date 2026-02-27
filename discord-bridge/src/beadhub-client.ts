@@ -5,22 +5,25 @@ import type { AdminMessage, AdminSession } from "./types.js";
 
 /**
  * Build auth headers. Supports two modes:
- * 1. Internal HMAC auth (in-cluster) — BEADHUB_INTERNAL_AUTH_SECRET + BEADHUB_PROJECT_ID
+ * 1. Internal HMAC auth (in-cluster) — BEADHUB_INTERNAL_AUTH_SECRET + projectId
  * 2. Bearer token — BEADHUB_API_KEY (aweb per-workspace key)
+ *
+ * @param projectId - Project UUID to scope the request to. Falls back to BEADHUB_PROJECT_ID.
  */
-function authHeaders(): Record<string, string> {
-  const { internalAuthSecret, projectId, apiKey } = config.beadhub;
+function authHeaders(projectId?: string): Record<string, string> {
+  const { internalAuthSecret, projectId: defaultProjectId, apiKey } = config.beadhub;
+  const resolvedProjectId = projectId || defaultProjectId;
 
-  if (internalAuthSecret && projectId) {
+  if (internalAuthSecret && resolvedProjectId) {
     // Internal proxy auth: HMAC-signed headers
     const principalType = "k";
     const principalId = randomUUID();
     const actorId = randomUUID();
-    const msg = `v2:${projectId}:${principalType}:${principalId}:${actorId}`;
+    const msg = `v2:${resolvedProjectId}:${principalType}:${principalId}:${actorId}`;
     const sig = createHmac("sha256", internalAuthSecret).update(msg).digest("hex");
     return {
       "X-BH-Auth": `${msg}:${sig}`,
-      "X-Project-ID": projectId,
+      "X-Project-ID": resolvedProjectId,
       "X-API-Key": principalId,
       "X-Aweb-Actor-ID": actorId,
     };
@@ -33,14 +36,15 @@ function authHeaders(): Record<string, string> {
   return {};
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+async function api<T>(path: string, init?: RequestInit & { projectId?: string }): Promise<T> {
   const url = `${config.beadhub.url}${path}`;
+  const { projectId, ...fetchInit } = init ?? {};
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...authHeaders(),
-    ...(init?.headers as Record<string, string> | undefined),
+    ...authHeaders(projectId),
+    ...(fetchInit?.headers as Record<string, string> | undefined),
   };
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, { ...fetchInit, headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`BeadHub ${init?.method ?? "GET"} ${path} → ${res.status}: ${body}`);
@@ -52,9 +56,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export async function getSessionMessages(
   sessionId: string,
   limit = 50,
+  projectId?: string,
 ): Promise<AdminMessage[]> {
   const data = await api<{ messages: AdminMessage[] }>(
     `/v1/chat/admin/sessions/${sessionId}/messages?limit=${limit}`,
+    { projectId },
   );
   return data.messages;
 }
