@@ -22,7 +22,7 @@ RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release
 
 # Dolt (required by beads CLI for issue database)
 RUN curl -fsSL "https://github.com/dolthub/dolt/releases/latest/download/dolt-linux-${TARGETARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin --strip-components=1 dolt-linux-${TARGETARCH}/bin/dolt
+    | tar -xz -C /usr/local --strip-components=1 dolt-linux-${TARGETARCH}/bin/dolt
 
 # Claude Code + Wrangler
 RUN npm install -g @anthropic-ai/claude-code wrangler
