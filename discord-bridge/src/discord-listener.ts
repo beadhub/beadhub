@@ -1,4 +1,4 @@
-import type { Client, Message, ThreadChannel } from "discord.js";
+import type { Client, Message, PartialMessage, ThreadChannel } from "discord.js";
 import { MessageFlags } from "discord.js";
 import type Redis from "ioredis";
 import type { SessionMap } from "./session-map.js";
@@ -75,7 +75,8 @@ export function stopTypingIndicator(threadId: string): void {
  *
  * Special handling:
  * - Voice notes (MessageFlags.IsVoiceMessage) are stored pending Scripty transcription
- * - Scripty bot replies (applicationId === SCRIPTY_APP_ID) are remapped as the original human's message
+ * - Scripty transcribes by EDITING the original voice note message (not sending a new reply),
+ *   so we catch transcriptions via the messageUpdate event.
  */
 export function startDiscordListener(
   client: Client,
@@ -91,6 +92,16 @@ export function startDiscordListener(
     }
   });
 
+  // Scripty edits the original voice note message with the transcript instead of replying.
+  // Detect transcriptions by checking if the updated message ID is in our pending voice notes map.
+  client.on("messageUpdate", async (_old: Message | PartialMessage, newMessage: Message | PartialMessage) => {
+    try {
+      await handleVoiceNoteEdit(newMessage, sessionMap, bridgeIdentity, redis);
+    } catch (err) {
+      console.error("[discord-listener] Error handling message update:", err);
+    }
+  });
+
   console.log("[discord-listener] Listening for thread replies (BeadHub + orchestrator routing)");
 }
 
@@ -100,15 +111,7 @@ async function handleMessage(
   bridgeIdentity: { workspace_id: string; alias: string },
   redis: Redis,
 ): Promise<void> {
-  // Scripty transcription: remap as the original voice note sender (before general bot filter)
-  if (message.author.bot && message.applicationId === SCRIPTY_APP_ID) {
-    if (message.channel.isThread() && message.channel.parentId === config.discord.channelId) {
-      await handleScriptyTranscription(message, sessionMap, bridgeIdentity, redis);
-    }
-    return;
-  }
-
-  // Ignore all other bots (including our own webhook messages)
+  // Ignore bots (including our own webhook messages)
   if (message.author.bot) return;
 
   // Only handle messages in threads
@@ -154,72 +157,52 @@ async function handleMessage(
 }
 
 /**
- * Handle a Scripty transcription reply.
- * Resolves the original voice note author and relays the transcription as their message.
+ * Handle a Scripty transcription delivered via message edit.
+ * Scripty edits the original voice note message in-place with the transcript text,
+ * rather than sending a new reply. We detect this by checking the updated message ID
+ * against our pending voice notes map.
+ *
+ * Note: SCRIPTY_APP_ID is kept as a reference constant above but is not needed here —
+ * the pending map already tells us this was a voice note we're waiting on.
  */
-async function handleScriptyTranscription(
-  message: Message,
+async function handleVoiceNoteEdit(
+  rawMessage: Message | PartialMessage,
   sessionMap: SessionMap,
   bridgeIdentity: { workspace_id: string; alias: string },
   redis: Redis,
 ): Promise<void> {
-  const transcription = message.content;
-  if (!transcription?.trim()) {
-    console.log("[discord-listener] Scripty message has no text content, skipping");
+  // Only process if this message ID is a pending voice note
+  const pending = pendingVoiceNotes.get(rawMessage.id);
+  if (!pending) return;
+
+  // Fetch the full message if we only have a partial
+  const message = rawMessage.partial ? await rawMessage.fetch() : rawMessage;
+
+  // Guard: must be a thread in our configured channel
+  if (!message.channel.isThread()) return;
+  if (message.channel.parentId !== config.discord.channelId) return;
+
+  const transcript = message.content;
+  if (!transcript?.trim()) {
+    // Scripty may fire a partial edit before adding content — wait for the real one
+    console.log("[discord-listener] Voice note edit has no text content yet, skipping");
     return;
   }
 
-  const thread = message.channel as ThreadChannel;
-  const threadId = thread.id;
-  const referencedMessageId = message.reference?.messageId;
+  // Consume the pending entry
+  pendingVoiceNotes.delete(rawMessage.id);
 
-  // Resolve the original voice note author
-  let authorName: string | null = null;
-
-  // Primary: check pending voice notes map (populated when voice note was received)
-  if (referencedMessageId) {
-    const pending = pendingVoiceNotes.get(referencedMessageId);
-    if (pending) {
-      authorName = pending.authorName;
-      pendingVoiceNotes.delete(referencedMessageId);
-      console.log(`[discord-listener] Resolved voice note author "${authorName}" from pending map`);
-    }
-  }
-
-  // Fallback: fetch the referenced message from Discord to get the original author
-  if (!authorName && referencedMessageId) {
-    try {
-      const refMsg = await thread.messages.fetch(referencedMessageId);
-      if (refMsg && !refMsg.author.bot) {
-        authorName = refMsg.member?.displayName ?? refMsg.author.username;
-        console.log(
-          `[discord-listener] Resolved voice note author "${authorName}" by fetching referenced message`,
-        );
-      }
-    } catch (err) {
-      console.warn(
-        `[discord-listener] Could not fetch referenced message ${referencedMessageId}:`,
-        err,
-      );
-    }
-  }
-
-  if (!authorName) {
-    console.warn(
-      `[discord-listener] Could not determine voice note author in thread ${threadId}, dropping Scripty message`,
-    );
-    return;
-  }
-
+  const { authorName, threadId } = pending;
   console.log(
-    `[discord-listener] Scripty transcription for ${authorName}: "${transcription.slice(0, 80)}"`,
+    `[discord-listener] Scripty transcription (via edit) for ${authorName}: "${transcript.slice(0, 80)}"`,
   );
 
   // Route the transcription as the original human's message
+  const thread = message.channel as ThreadChannel;
   const sessionId = await sessionMap.getSessionId(threadId);
 
   if (!sessionId) {
-    await routeToOrchestrator(redis, sessionMap, threadId, authorName, transcription);
+    await routeToOrchestrator(redis, sessionMap, threadId, authorName, transcript);
     startTypingIndicator(thread);
     return;
   }
@@ -227,13 +210,13 @@ async function handleScriptyTranscription(
   const source = await sessionMap.getSource(threadId);
 
   if (source === "orchestrator") {
-    await pushToOrchestratorInbox(redis, threadId, sessionId, authorName, transcription);
+    await pushToOrchestratorInbox(redis, threadId, sessionId, authorName, transcript);
     startTypingIndicator(thread);
     return;
   }
 
   // BeadHub-managed thread
-  await relayToBeadHub(sessionId, authorName, message, bridgeIdentity, transcription);
+  await relayToBeadHub(sessionId, authorName, message, bridgeIdentity, transcript);
 }
 
 /** Create a new session and route to orchestrator inbox */
