@@ -95,6 +95,7 @@ export function startDiscordListener(
   // Scripty edits the original voice note message with the transcript instead of replying.
   // Detect transcriptions by checking if the updated message ID is in our pending voice notes map.
   client.on("messageUpdate", async (_old: Message | PartialMessage, newMessage: Message | PartialMessage) => {
+    console.log(`[discord-listener] messageUpdate fired: id=${newMessage.id} partial=${newMessage.partial} inPending=${pendingVoiceNotes.has(newMessage.id)}`);
     try {
       await handleVoiceNoteEdit(newMessage, sessionMap, bridgeIdentity, redis);
     } catch (err) {

@@ -27,7 +27,7 @@ async function main(): Promise<void> {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Message, Partials.Channel],
+    partials: [Partials.Message, Partials.Channel, Partials.Thread],
   });
 
   await client.login(config.discord.token);
