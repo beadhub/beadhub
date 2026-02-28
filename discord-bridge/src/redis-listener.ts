@@ -1,8 +1,9 @@
 import type Redis from "ioredis";
-import type { TextChannel, WebhookClient } from "discord.js";
+import type { TextChannel, ThreadChannel, WebhookClient } from "discord.js";
 import type { BeadHubEvent, ChatMessageEvent } from "./types.js";
 import type { SessionMap } from "./session-map.js";
-import { getSessionMessages, listSessions } from "./beadhub-client.js";
+import { config } from "./config.js";
+import { getSessionMessages, getProjectRepos } from "./beadhub-client.js";
 import { getOrCreateThread, sendAsAgent } from "./discord-sender.js";
 
 /** Set of message_ids we've already relayed (echo suppression + dedup). */
@@ -20,9 +21,12 @@ export function wasRelayed(messageId: string): boolean {
 /**
  * Subscribe to all workspace event channels via PSUBSCRIBE events:*
  * and relay chat.message_sent events to Discord.
+ *
+ * The `cmdRedis` client is used for regular commands (RPUSH to orchestrator inbox).
+ * A duplicate is created internally for PSUBSCRIBE.
  */
 export async function startRedisListener(
-  redis: Redis,
+  cmdRedis: Redis,
   channel: TextChannel,
   webhook: WebhookClient,
   sessionMap: SessionMap,
@@ -30,7 +34,7 @@ export async function startRedisListener(
   bridgeAlias: string,
 ): Promise<void> {
   // ioredis requires a duplicate client for subscriptions
-  const sub = redis.duplicate();
+  const sub = cmdRedis.duplicate();
 
   sub.on("error", (err) => {
     console.error("[redis] Subscription error:", err.message);
@@ -49,7 +53,7 @@ export async function startRedisListener(
       // Skip messages sent by the bridge itself (human Discord replies relayed to BeadHub)
       if (chatEvent.from_alias === bridgeAlias) return;
 
-      await handleChatMessage(chatEvent, channel, webhook, sessionMap, echoTtlMs);
+      await handleChatMessage(chatEvent, cmdRedis, channel, webhook, sessionMap, echoTtlMs);
     } catch (err) {
       console.error("[redis] Error handling event:", err);
     }
@@ -58,6 +62,7 @@ export async function startRedisListener(
 
 async function handleChatMessage(
   event: ChatMessageEvent,
+  cmdRedis: Redis,
   channel: TextChannel,
   webhook: WebhookClient,
   sessionMap: SessionMap,
@@ -76,6 +81,9 @@ async function handleChatMessage(
     return;
   }
 
+  let fromAlias: string;
+  let body: string;
+
   // Double-check this is the message we expect
   if (latest.message_id !== event.message_id) {
     // Race condition: a newer message was sent. Fetch more to find ours.
@@ -85,11 +93,17 @@ async function handleChatMessage(
       console.warn(`[bridge] Could not find message ${event.message_id}`);
       return;
     }
-    await relayToDiscord(target.from_agent, target.body, event, channel, webhook, sessionMap);
-    return;
+    fromAlias = target.from_agent;
+    body = target.body;
+  } else {
+    fromAlias = latest.from_agent;
+    body = latest.body;
   }
 
-  await relayToDiscord(latest.from_agent, latest.body, event, channel, webhook, sessionMap);
+  const thread = await relayToDiscord(fromAlias, body, event, channel, webhook, sessionMap);
+
+  // Route to orchestrator inbox if the chat targets the orchestrator
+  await maybeRouteToOrchestrator(event, fromAlias, body, thread, cmdRedis);
 }
 
 async function relayToDiscord(
@@ -99,7 +113,7 @@ async function relayToDiscord(
   channel: TextChannel,
   webhook: WebhookClient,
   sessionMap: SessionMap,
-): Promise<void> {
+): Promise<ThreadChannel> {
   // Build participant list: sender + recipients
   const participants = [event.from_alias, ...event.to_aliases];
   const uniqueParticipants = [...new Set(participants)];
@@ -114,5 +128,55 @@ async function relayToDiscord(
   await sendAsAgent(webhook, thread, fromAlias, body);
   console.log(
     `[bridge] ${fromAlias} → thread "${thread.name}": ${body.slice(0, 80)}...`,
+  );
+
+  return thread;
+}
+
+/**
+ * If the chat message targets the orchestrator, push it to `orchestrator:inbox`
+ * so the dispatcher can wake up and handle it via `processChatMessage()`.
+ */
+async function maybeRouteToOrchestrator(
+  event: ChatMessageEvent,
+  fromAlias: string,
+  body: string,
+  thread: ThreadChannel,
+  cmdRedis: Redis,
+): Promise<void> {
+  const orchestratorAlias = config.orchestrator.alias;
+
+  // Don't relay the orchestrator's own responses back to itself
+  if (fromAlias === orchestratorAlias) return;
+
+  // Only route if the orchestrator is one of the recipients
+  if (!event.to_aliases.includes(orchestratorAlias)) return;
+
+  // Look up repo origin for the project
+  let repoOrigin = "";
+  try {
+    const repos = await getProjectRepos(event.project_id);
+    if (repos.length > 0) {
+      repoOrigin = repos[0].canonical_origin;
+    }
+  } catch (err) {
+    console.warn(`[bridge] Failed to fetch repos for project ${event.project_id}:`, err);
+  }
+
+  const inboxMessage = {
+    type: "bdh_chat",
+    thread_id: thread.id,
+    from_alias: fromAlias,
+    message: body,
+    project_slug: event.project_slug ?? "",
+    project_id: event.project_id,
+    repo_origin: repoOrigin,
+    chat_session_id: event.session_id,
+    timestamp: event.timestamp,
+  };
+
+  await cmdRedis.rpush("orchestrator:inbox", JSON.stringify(inboxMessage));
+  console.log(
+    `[bridge] Routed bdh chat from ${fromAlias} to orchestrator:inbox (project: ${event.project_slug})`,
   );
 }

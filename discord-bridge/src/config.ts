@@ -17,6 +17,9 @@ export const config = {
   health: {
     port: parseInt(env("HEALTH_PORT", "3001"), 10),
   },
+  orchestrator: {
+    alias: env("ORCHESTRATOR_ALIAS", "orchestrator"),
+  },
   /** Recently relayed message IDs — prevents echo loops */
   echoSuppressionTtlMs: 60_000,
   /** Max Discord message length before splitting */

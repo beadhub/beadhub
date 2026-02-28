@@ -102,6 +102,22 @@ export async function sendMessage(
   return data.message_id;
 }
 
+/** Repo info from the BeadHub repos API. */
+interface RepoInfo {
+  repo_id: string;
+  canonical_origin: string;
+  [key: string]: unknown;
+}
+
+/** Fetch repos associated with a project. */
+export async function getProjectRepos(projectId: string): Promise<RepoInfo[]> {
+  const data = await api<{ repos: RepoInfo[] }>(
+    `/v1/repos?project_id=${encodeURIComponent(projectId)}`,
+    { projectId },
+  );
+  return data.repos;
+}
+
 /**
  * Get or create a dashboard identity for the bridge.
  * Returns { workspace_id, alias }.

@@ -39,12 +39,25 @@ export interface AdminSession {
   message_count: number;
 }
 
-/** Bridge → Orchestrator Deployment via Redis LIST */
+/** Bridge → Orchestrator Deployment via Redis LIST (Discord messages) */
 export interface OrchestratorInboxMessage {
   thread_id: string;
   session_id: string;
   author: string;
   message: string;
+  timestamp: string;
+}
+
+/** Bridge → Orchestrator Deployment via Redis LIST (bdh chat messages) */
+export interface OrchestratorChatInboxMessage {
+  type: "bdh_chat";
+  thread_id: string;
+  from_alias: string;
+  message: string;
+  project_slug: string;
+  project_id: string;
+  repo_origin: string;
+  chat_session_id: string;
   timestamp: string;
 }
 
