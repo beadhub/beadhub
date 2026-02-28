@@ -1,19 +1,15 @@
-name: Docker – beadhub
+name: Docker – claude-agent
 
 on:
   push:
     branches: [main]
     paths:
-      - 'Dockerfile'
-      - 'src/**'
-      - 'frontend/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/docker.yml'
+      - 'agent-image/**'
+      - '.github/workflows/docker-claude-agent.yml'
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/woody88/hq-beadhub
+  IMAGE_NAME: ghcr.io/woody88/claude-agent
 
 jobs:
   build-and-push:
@@ -52,10 +48,11 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: agent-image
+          file: agent-image/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=hq-beadhub
-          cache-to: type=gha,mode=max,scope=hq-beadhub
+          cache-from: type=gha,scope=claude-agent
+          cache-to: type=gha,mode=max,scope=claude-agent
