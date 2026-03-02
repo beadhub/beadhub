@@ -156,14 +156,14 @@ async function handleMessage(
           );
         }
         // Post initial indicator in the thread
+        // Discord webhooks require thread_id as a URL query parameter
         if (config.discord.ordisWebhookUrl) {
-          await fetch(config.discord.ordisWebhookUrl, {
+          await fetch(`${config.discord.ordisWebhookUrl}?thread_id=${thread.id}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               username: "🎯 ordis",
               content: "⏳ Processing...",
-              thread_id: thread.id,
             }),
           });
         }
