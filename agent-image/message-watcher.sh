@@ -22,7 +22,7 @@ bdh :init --alias ordis --role coordinator
 # Post "online" to Discord #ordis channel
 if [ -n "${DISCORD_ORDIS_WEBHOOK_URL:-}" ]; then
   curl -sf -H "Content-Type: application/json" \
-    -d '{"username":"🎯 ordis","content":"Systems nominal. Ordis is READY to assist, Operator. What shall we accomplish today?"}' \
+    -d '{"username":"🎯 ordis","content":"Hey, I\u0027m up and listening — what are we working on? 👋"}' \
     "$DISCORD_ORDIS_WEBHOOK_URL" >/dev/null 2>&1 || \
     echo "[message-watcher] Warning: failed to post online message to Discord"
 fi
