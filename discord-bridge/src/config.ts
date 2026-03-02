@@ -7,12 +7,19 @@ export const config = {
     /** Optional AI orchestrator channel (separate from agent chat) */
     aiChannelId: env("DISCORD_AI_CHANNEL_ID", ""),
     aiWebhookUrl: env("DISCORD_AI_WEBHOOK_URL", ""),
+    /** Ordis coordinator channel — flat conversation (no threads) */
+    ordisChannelId: env("DISCORD_ORDIS_CHANNEL_ID", ""),
+    ordisWebhookUrl: env("DISCORD_ORDIS_WEBHOOK_URL", ""),
   },
   beadhub: {
     url: env("BEADHUB_URL", "http://localhost:8000"),
     apiKey: env("BEADHUB_API_KEY", ""),
     internalAuthSecret: env("BEADHUB_INTERNAL_AUTH_SECRET", ""),
     projectId: env("BEADHUB_PROJECT_ID", ""),
+  },
+  controlPlane: {
+    apiKey: env("CONTROL_PLANE_API_KEY", ""),
+    projectId: env("CONTROL_PLANE_PROJECT_ID", ""),
   },
   redis: {
     url: env("REDIS_URL", "redis://localhost:16379/0"),

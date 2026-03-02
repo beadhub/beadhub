@@ -25,6 +25,18 @@ export function wasRelayed(messageId: string): boolean {
  * The `cmdRedis` client is used for regular commands (RPUSH to orchestrator inbox).
  * A duplicate is created internally for PSUBSCRIBE.
  */
+/** Optional ordis webhook for posting to #ordis channel directly */
+export interface OrdisWebhookConfig {
+  webhookUrl: string;
+  controlPlaneProjectId: string;
+}
+
+let ordisWebhookConfig: OrdisWebhookConfig | null = null;
+
+export function setOrdisWebhookConfig(cfg: OrdisWebhookConfig): void {
+  ordisWebhookConfig = cfg;
+}
+
 export async function startRedisListener(
   cmdRedis: Redis,
   channel: TextChannel,
@@ -100,10 +112,66 @@ async function handleChatMessage(
     body = latest.body;
   }
 
+  // Control-plane messages from ordis → post to #ordis channel directly (no threads)
+  if (
+    ordisWebhookConfig &&
+    event.project_id === ordisWebhookConfig.controlPlaneProjectId
+  ) {
+    await postToOrdisChannel(fromAlias, body);
+    return;
+  }
+
   const thread = await relayToDiscord(fromAlias, body, event, channel, webhook, sessionMap);
 
   // Route to orchestrator inbox if the chat targets the orchestrator
   await maybeRouteToOrchestrator(event, fromAlias, body, thread, cmdRedis);
+}
+
+/** Agent alias → emoji prefix for ordis channel posts */
+const AGENT_EMOJIS: Record<string, string> = {
+  ordis: "🎯",
+  neo: "🔧",
+  hawk: "🦅",
+};
+
+/**
+ * Post a message to the #ordis Discord channel via webhook.
+ * Used for control-plane project messages — flat conversation, no threads.
+ */
+async function postToOrdisChannel(fromAlias: string, body: string): Promise<void> {
+  if (!ordisWebhookConfig) return;
+
+  const emoji = AGENT_EMOJIS[fromAlias] ?? "🤖";
+  const username = `${emoji} ${fromAlias}`;
+
+  // Split long messages for Discord's 2000-char limit
+  const chunks = splitMessage(body, config.maxDiscordMessageLength);
+  for (const chunk of chunks) {
+    await fetch(ordisWebhookConfig.webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, content: chunk }),
+    });
+  }
+
+  console.log(`[bridge->ordis] ${fromAlias}: ${body.slice(0, 80)}`);
+}
+
+function splitMessage(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitAt = remaining.lastIndexOf("\n", maxLen);
+    if (splitAt <= 0) splitAt = maxLen;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).replace(/^\n/, "");
+  }
+  return chunks;
 }
 
 async function relayToDiscord(

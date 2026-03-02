@@ -118,6 +118,17 @@ async function handleMessage(
   // Ignore bots (including our own webhook messages)
   if (message.author.bot) return;
 
+  // Ordis channel: flat conversation (no threads) → control-plane chat
+  if (
+    config.discord.ordisChannelId &&
+    message.channel.id === config.discord.ordisChannelId &&
+    !message.channel.isThread()
+  ) {
+    const displayName = message.member?.displayName ?? message.author.username;
+    await routeToOrdisChannel(displayName, message.content);
+    return;
+  }
+
   // Only handle messages in threads
   if (!message.channel.isThread()) return;
 
@@ -354,6 +365,29 @@ async function pushToAiInbox(
   await redis.rpush(AI_INBOX, JSON.stringify(payload));
   console.log(
     `[discord->ai] ${author} in thread ${threadId}: ${message.slice(0, 80)}`,
+  );
+}
+
+/**
+ * Route a message from the #ordis Discord channel to BeadHub control-plane chat.
+ * Uses the control-plane API key so the message lands in ordis's central inbox.
+ */
+async function routeToOrdisChannel(
+  displayName: string,
+  content: string,
+): Promise<void> {
+  const apiKey = config.controlPlane.apiKey;
+  if (!apiKey) {
+    console.warn("[discord->ordis] CONTROL_PLANE_API_KEY not set — skipping");
+    return;
+  }
+
+  const body = `[${displayName} via Discord] ${content}`;
+  const result = await createOrSendChat(["ordis"], body, apiKey);
+
+  markRelayed(result.message_id, config.echoSuppressionTtlMs);
+  console.log(
+    `[discord->ordis] ${displayName}: ${content.slice(0, 80)}`,
   );
 }
 

@@ -3,7 +3,7 @@ import Redis from "ioredis";
 import { config } from "./config.js";
 import { SessionMap } from "./session-map.js";
 import { getWebhook, loadGuildMembers } from "./discord-sender.js";
-import { startRedisListener } from "./redis-listener.js";
+import { startRedisListener, setOrdisWebhookConfig } from "./redis-listener.js";
 import { startDiscordListener } from "./discord-listener.js";
 import { startOrchestratorRelay } from "./orchestrator-relay.js";
 import { startAiRelay } from "./ai-relay.js";
@@ -61,6 +61,15 @@ async function main(): Promise<void> {
     config.echoSuppressionTtlMs,
     bridgeIdentity.alias,
   );
+
+  // 6b. Configure ordis webhook for control-plane messages → #ordis channel
+  if (config.discord.ordisWebhookUrl && config.controlPlane.projectId) {
+    setOrdisWebhookConfig({
+      webhookUrl: config.discord.ordisWebhookUrl,
+      controlPlaneProjectId: config.controlPlane.projectId,
+    });
+    console.log(`[bridge] Ordis channel routing enabled (project: ${config.controlPlane.projectId})`);
+  }
 
   // 7. Start Discord → BeadHub + orchestrator listener
   startDiscordListener(client, sessionMap, bridgeIdentity, redis);

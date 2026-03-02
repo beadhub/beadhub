@@ -113,12 +113,16 @@ interface CreateSessionResponse {
  * Create or reuse a chat session and send a message to target aliases.
  * Uses Bearer auth (BEADHUB_API_KEY) since the aweb chat endpoint requires
  * workspace-level identity, not HMAC admin auth.
+ *
+ * @param apiKeyOverride - Optional API key to use instead of the default project key.
  */
 export async function createOrSendChat(
   toAliases: string[],
   message: string,
+  apiKeyOverride?: string,
 ): Promise<CreateSessionResponse> {
-  const { url, apiKey } = config.beadhub;
+  const { url, apiKey: defaultKey } = config.beadhub;
+  const apiKey = apiKeyOverride || defaultKey;
   if (!apiKey) {
     throw new Error("BEADHUB_API_KEY is required for aweb chat — set it on the bridge deployment");
   }
