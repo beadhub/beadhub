@@ -102,6 +102,33 @@ export async function sendMessage(
   return data.message_id;
 }
 
+/** Workspace info from the team/list API. */
+export interface WorkspaceInfo {
+  workspace_id: string;
+  alias: string;
+  human_name?: string;
+  project_id?: string;
+  project_slug?: string;
+  role?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+/** List team workspaces (bounded coordination view). */
+export async function listTeamWorkspaces(): Promise<WorkspaceInfo[]> {
+  const data = await api<{ workspaces: WorkspaceInfo[] }>(
+    `/v1/workspaces/team?include_presence=false&only_with_claims=false`,
+  );
+  return data.workspaces;
+}
+
+/** Resolve a workspace_id for a given alias. Returns null if not found. */
+export async function resolveWorkspaceId(alias: string): Promise<string | null> {
+  const workspaces = await listTeamWorkspaces();
+  const match = workspaces.find((w) => w.alias === alias);
+  return match?.workspace_id ?? null;
+}
+
 /** Repo info from the BeadHub repos API. */
 interface RepoInfo {
   repo_id: string;
