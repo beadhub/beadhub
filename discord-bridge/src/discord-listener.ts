@@ -1,11 +1,14 @@
 import type { Client, Message, PartialMessage, ThreadChannel } from "discord.js";
-import { MessageFlags } from "discord.js";
+import { ChannelType, MessageFlags } from "discord.js";
 import type Redis from "ioredis";
 import type { SessionMap } from "./session-map.js";
 import type { AiInboxMessage } from "./types.js";
 import { joinSession, sendMessage, createOrSendChat } from "./beadhub-client.js";
 import { markRelayed } from "./redis-listener.js";
 import { config } from "./config.js";
+
+/** Redis instance reference for storing ordis thread mappings */
+let redisRef: Redis | null = null;
 
 const AI_INBOX = "ai:inbox";
 
@@ -90,6 +93,8 @@ export function startDiscordListener(
   bridgeIdentity: { workspace_id: string; alias: string },
   redis: Redis,
 ): void {
+  redisRef = redis;
+
   client.on("messageCreate", async (message: Message) => {
     try {
       await handleMessage(message, sessionMap, bridgeIdentity, redis);
@@ -122,13 +127,51 @@ async function handleMessage(
   if (message.author.bot) return;
 
   // Ordis channel: flat conversation (no threads) → control-plane chat
+  // Creates a thread on the user's message for tool activity streaming
   if (
     config.discord.ordisChannelId &&
     message.channel.id === config.discord.ordisChannelId &&
     !message.channel.isThread()
   ) {
     const displayName = message.member?.displayName ?? message.author.username;
-    await routeToOrdisChannel(displayName, message.content);
+    const result = await routeToOrdisChannel(displayName, message.content);
+
+    // Create a Discord thread on the user's message for streaming tool activity
+    if (result?.sessionId) {
+      try {
+        const thread = await message.startThread({
+          name: `ordis processing...`,
+          autoArchiveDuration: 60,
+        });
+        // Store thread ID in Redis so orchestrator can post tool activity
+        if (redisRef) {
+          await redisRef.set(
+            `ordis:thread:${result.sessionId}`,
+            thread.id,
+            "EX",
+            3600,
+          );
+          console.log(
+            `[discord->ordis] Created thread ${thread.id} for session ${result.sessionId.slice(0, 8)}...`,
+          );
+        }
+        // Post initial indicator in the thread
+        if (config.discord.ordisWebhookUrl) {
+          await fetch(config.discord.ordisWebhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username: "🎯 ordis",
+              content: "⏳ Processing...",
+              thread_id: thread.id,
+            }),
+          });
+        }
+      } catch (err) {
+        console.warn(`[discord->ordis] Failed to create thread:`, err);
+      }
+    }
+
     if ("sendTyping" in message.channel) {
       startTypingIndicator(message.channel as TypableChannel);
     }
@@ -381,11 +424,11 @@ async function pushToAiInbox(
 async function routeToOrdisChannel(
   displayName: string,
   content: string,
-): Promise<void> {
+): Promise<{ sessionId: string } | null> {
   const apiKey = config.controlPlane.apiKey;
   if (!apiKey) {
     console.warn("[discord->ordis] CONTROL_PLANE_API_KEY not set — skipping");
-    return;
+    return null;
   }
 
   const body = `[${displayName} via Discord] ${content}`;
@@ -395,6 +438,8 @@ async function routeToOrdisChannel(
   console.log(
     `[discord->ordis] ${displayName}: ${content.slice(0, 80)}`,
   );
+
+  return { sessionId: result.session_id };
 }
 
 /** Relay message to BeadHub API (original behavior) */

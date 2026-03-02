@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     jq \
     openssh-client \
+    redis-tools \
     gh \
     && rm -rf /var/lib/apt/lists/*
 
