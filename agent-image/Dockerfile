@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     redis-tools \
     gh \
     android-tools-adb \
+    openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # kubectl
@@ -39,7 +40,7 @@ RUN echo "node ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/node
 # Claude Code config: skip ALL interactive prompts + dangerously skip permissions
 RUN mkdir -p /home/node/.claude \
     && echo '{"hasCompletedOnboarding": true, "hasTrustDialogAccepted": true, "hasTrustDialogHooksAccepted": true}' > /home/node/.claude.json \
-    && echo '{"skipDangerousModePermissionPrompt": true}' > /home/node/.claude/settings.json \
+    && echo '{"skipDangerousModePermissionPrompt": true, "mcpServers": {"maestro": {"command": "maestro", "args": ["mcp"]}}}' > /home/node/.claude/settings.json \
     && chown -R node:node /home/node/.claude /home/node/.claude.json
 
 USER node
@@ -49,6 +50,10 @@ WORKDIR /home/node
 # npm-installed Claude Code fails with `node: bad option: --sdk-url`
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/home/node/.local/bin:${PATH}"
+
+# Maestro CLI (requires Java 17) — installs to ~/.maestro/bin
+RUN curl -fsSL https://get.maestro.mobile.dev | bash
+ENV PATH="/home/node/.maestro/bin:${PATH}"
 
 # No ENTRYPOINT — K8s manifest controls command/args
 CMD ["bash"]
