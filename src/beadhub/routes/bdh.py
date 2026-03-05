@@ -323,46 +323,80 @@ async def _delete_claim(
     workspace_id: str,
     bead_id: str,
 ) -> None:
+    """Remove a single workspace's claim on a bead and update its focus."""
+    await _release_bead_claims(
+        db_infra, project_id=project_id, bead_id=bead_id, workspace_id=workspace_id
+    )
+
+
+async def _release_bead_claims(
+    db_infra: DatabaseInfra,
+    *,
+    project_id: str,
+    bead_id: str,
+    workspace_id: str | None = None,
+) -> None:
+    """Release claims on a bead and update affected workspaces' focus.
+
+    If workspace_id is provided, only that workspace's claim is removed.
+    If workspace_id is None, ALL claims on the bead are removed (used when
+    a bead is closed/deleted, since any workspace's claim becomes stale).
+    """
     server_db = db_infra.get_manager("server")
     async with server_db.transaction() as tx:
-        await tx.execute(
-            """
-            DELETE FROM {{tables.bead_claims}}
-            WHERE project_id = $1 AND workspace_id = $2 AND bead_id = $3
-            """,
-            UUID(project_id),
-            UUID(workspace_id),
-            bead_id,
-        )
+        # Find affected workspaces before deleting.
+        if workspace_id:
+            affected_ws_ids = [UUID(workspace_id)]
+            await tx.execute(
+                """
+                DELETE FROM {{tables.bead_claims}}
+                WHERE project_id = $1 AND workspace_id = $2 AND bead_id = $3
+                """,
+                UUID(project_id),
+                UUID(workspace_id),
+                bead_id,
+            )
+        else:
+            rows = await tx.fetch_all(
+                """
+                DELETE FROM {{tables.bead_claims}}
+                WHERE project_id = $1 AND bead_id = $2
+                RETURNING workspace_id
+                """,
+                UUID(project_id),
+                bead_id,
+            )
+            affected_ws_ids = [row["workspace_id"] for row in rows]
 
-        # Update workspace focus to next active claim (or clear if none)
-        next_claim = await tx.fetch_one(
-            """
-            SELECT apex_bead_id, apex_repo_name, apex_branch
-            FROM {{tables.bead_claims}}
-            WHERE project_id = $1 AND workspace_id = $2
-            ORDER BY claimed_at DESC
-            LIMIT 1
-            """,
-            UUID(project_id),
-            UUID(workspace_id),
-        )
-        await tx.execute(
-            """
-            UPDATE {{tables.workspaces}}
-            SET focus_apex_bead_id = $1,
-                focus_apex_repo_name = $2,
-                focus_apex_branch = $3,
-                focus_updated_at = NOW(),
-                updated_at = NOW()
-            WHERE project_id = $4 AND workspace_id = $5
-            """,
-            next_claim["apex_bead_id"] if next_claim else None,
-            next_claim["apex_repo_name"] if next_claim else None,
-            next_claim["apex_branch"] if next_claim else None,
-            UUID(project_id),
-            UUID(workspace_id),
-        )
+        # Update each affected workspace's focus to its next active claim.
+        for ws_id in affected_ws_ids:
+            next_claim = await tx.fetch_one(
+                """
+                SELECT apex_bead_id, apex_repo_name, apex_branch
+                FROM {{tables.bead_claims}}
+                WHERE project_id = $1 AND workspace_id = $2
+                ORDER BY claimed_at DESC
+                LIMIT 1
+                """,
+                UUID(project_id),
+                ws_id,
+            )
+            await tx.execute(
+                """
+                UPDATE {{tables.workspaces}}
+                SET focus_apex_bead_id = $1,
+                    focus_apex_repo_name = $2,
+                    focus_apex_branch = $3,
+                    focus_updated_at = NOW(),
+                    updated_at = NOW()
+                WHERE project_id = $4 AND workspace_id = $5
+                """,
+                next_claim["apex_bead_id"] if next_claim else None,
+                next_claim["apex_repo_name"] if next_claim else None,
+                next_claim["apex_branch"] if next_claim else None,
+                UUID(project_id),
+                ws_id,
+            )
 
 
 async def _get_bead_title(
