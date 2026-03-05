@@ -13,7 +13,10 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
+from .claims import release_bead_claims, upsert_claim
 from .events import (
+    BeadClaimedEvent,
+    BeadUnclaimedEvent,
     ChatMessageEvent,
     Event,
     MessageAcknowledgedEvent,
@@ -45,6 +48,12 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
                 await _cascade_agent_deregistered(redis, db_infra, context)
             except Exception:
                 logger.error("Failed to cascade agent.deregistered", exc_info=True)
+
+        if event_type == "task.status_changed":
+            try:
+                await _cascade_task_status_changed(redis, db_infra, context)
+            except Exception:
+                logger.error("Failed to cascade task.status_changed", exc_info=True)
 
         try:
             event = _translate(event_type, context)
@@ -127,6 +136,89 @@ async def _cascade_agent_deregistered(
         agent_id,
         workspace["alias"],
     )
+
+
+async def _cascade_task_status_changed(
+    redis: Redis, db_infra: "DatabaseInfra", context: dict
+) -> None:
+    """Translate task status changes into bead claim lifecycle operations.
+
+    When an aweb task moves to in_progress, create a bead claim for the
+    acting workspace. When it moves away from in_progress (closed, etc.),
+    release all claims on that task.
+    """
+    actor_id = context.get("actor_agent_id", "").strip()
+    task_ref = context.get("task_ref", "").strip()
+    new_status = context.get("new_status", "")
+    title = context.get("title")
+
+    if not actor_id or not task_ref:
+        return
+
+    try:
+        actor_uuid = UUID(actor_id)
+    except ValueError:
+        logger.warning("task.status_changed has non-UUID actor_agent_id: %r", actor_id)
+        return
+
+    server_db = db_infra.get_manager("server")
+    workspace = await server_db.fetch_one(
+        """
+        SELECT project_id, alias, human_name
+        FROM {{tables.workspaces}}
+        WHERE workspace_id = $1 AND deleted_at IS NULL
+        """,
+        actor_uuid,
+    )
+    if workspace is None:
+        logger.warning("task.status_changed: no workspace for actor %s", actor_id)
+        return
+
+    project_id = str(workspace["project_id"])
+    alias = workspace["alias"]
+    project_slug = await get_workspace_project_slug(redis, actor_id)
+
+    if new_status == "in_progress":
+        conflict = await upsert_claim(
+            db_infra,
+            project_id=project_id,
+            workspace_id=actor_id,
+            alias=alias,
+            human_name=workspace["human_name"] or "",
+            bead_id=task_ref,
+        )
+        if conflict:
+            logger.info(
+                "Task %s already claimed by %s, skipping event", task_ref, conflict["alias"]
+            )
+            return
+
+        await publish_event(
+            redis,
+            BeadClaimedEvent(
+                workspace_id=actor_id,
+                project_slug=project_slug,
+                bead_id=task_ref,
+                alias=alias,
+                title=title,
+            ),
+        )
+    else:
+        await release_bead_claims(
+            db_infra,
+            project_id=project_id,
+            bead_id=task_ref,
+        )
+        await publish_event(
+            redis,
+            BeadUnclaimedEvent(
+                workspace_id=actor_id,
+                project_slug=project_slug,
+                bead_id=task_ref,
+                alias=alias,
+                title=title,
+            ),
+        )
 
 
 async def _alias_for(redis: Redis, workspace_id: str) -> str:

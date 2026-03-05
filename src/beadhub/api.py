@@ -10,6 +10,7 @@ from aweb.routes.chat import router as aweb_chat_router
 from aweb.routes.messages import router as aweb_messages_router
 from aweb.routes.projects import router as aweb_projects_router
 from aweb.routes.reservations import router as aweb_reservations_router
+from aweb.routes.tasks import router as aweb_tasks_router
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from redis.asyncio import Redis
@@ -231,6 +232,7 @@ def create_app(
     app.include_router(aweb_messages_router)
     app.include_router(aweb_projects_router)
     app.include_router(aweb_reservations_router)
+    app.include_router(aweb_tasks_router)
 
     # beadhub endpoints.
     app.include_router(bdh_router)
