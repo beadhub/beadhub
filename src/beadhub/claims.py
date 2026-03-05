@@ -22,6 +22,69 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+async def _resolve_task_apex(
+    db_infra: DatabaseInfra,
+    project_id: str,
+    task_ref: str,
+    max_depth: int = 20,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Walk aweb tasks parent_task_id chain to find the root task.
+
+    Falls back to aweb.tasks when beads_issues has no data (native mode).
+    Returns (root_task_ref, None, None) since aweb tasks have no repo/branch.
+    """
+    aweb_db = db_infra.get_manager("aweb")
+
+    # Look up the project slug for task_ref reconstruction
+    project = await aweb_db.fetch_one(
+        "SELECT slug FROM {{tables.projects}} WHERE project_id = $1 AND deleted_at IS NULL",
+        UUID(project_id),
+    )
+    if not project:
+        return None, None, None
+    slug = project["slug"]
+
+    # Parse task_number from task_ref (format: {slug}-{number:03d})
+    prefix = slug + "-"
+    if not task_ref.startswith(prefix):
+        return None, None, None
+    try:
+        task_number = int(task_ref[len(prefix) :])
+    except ValueError:
+        return None, None, None
+
+    current = await aweb_db.fetch_one(
+        """
+        SELECT task_id, task_number, parent_task_id
+        FROM {{tables.tasks}}
+        WHERE project_id = $1 AND task_number = $2 AND deleted_at IS NULL
+        """,
+        UUID(project_id),
+        task_number,
+    )
+    if not current:
+        return None, None, None
+
+    # Walk parent chain to root
+    depth = 0
+    while current.get("parent_task_id") and depth < max_depth:
+        parent = await aweb_db.fetch_one(
+            """
+            SELECT task_id, task_number, parent_task_id
+            FROM {{tables.tasks}}
+            WHERE task_id = $1 AND deleted_at IS NULL
+            """,
+            current["parent_task_id"],
+        )
+        if not parent:
+            break
+        current = parent
+        depth += 1
+
+    apex_ref = f"{slug}-{current['task_number']:03d}"
+    return apex_ref, None, None
+
+
 async def resolve_claim_apex(
     db_infra: DatabaseInfra,
     project_id: str,
@@ -46,7 +109,7 @@ async def resolve_claim_apex(
         bead_id,
     )
     if not current:
-        return None, None, None
+        return await _resolve_task_apex(db_infra, project_id, bead_id, max_depth)
 
     depth = 0
     while current.get("parent_id") and depth < max_depth:

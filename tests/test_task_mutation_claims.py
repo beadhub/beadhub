@@ -245,3 +245,46 @@ async def test_task_deleted_releases_claim(db_infra, redis_client_async):
                 headers={"Authorization": f"Bearer {setup['api_key']}"},
             )
             assert claims.json()["claims"] == [], "Deleting a task should release all claims"
+
+
+@pytest.mark.asyncio
+async def test_task_claim_resolves_apex_from_parent(db_infra, redis_client_async):
+    """Claiming a child task sets apex to the root parent task."""
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            setup = await _setup_agent_with_task(client)
+
+            # The setup task is a root task. Create a child task under it.
+            child_resp = await client.post(
+                "/v1/tasks",
+                headers={"Authorization": f"Bearer {setup['api_key']}"},
+                json={
+                    "title": "Subtask of the bug",
+                    "task_type": "task",
+                    "priority": 1,
+                    "parent_task_id": setup["task_id"],
+                },
+            )
+            assert child_resp.status_code == 200, child_resp.text
+            child_ref = child_resp.json()["task_ref"]
+
+            # Claim the child task
+            resp = await client.patch(
+                f"/v1/tasks/{child_ref}",
+                headers={"Authorization": f"Bearer {setup['api_key']}"},
+                json={"status": "in_progress"},
+            )
+            assert resp.status_code == 200, resp.text
+            await asyncio.sleep(0.3)
+
+            # Check that the claim's apex points to the parent task
+            server_db = db_infra.get_manager("server")
+            claim = await server_db.fetch_one(
+                "SELECT apex_bead_id FROM {{tables.bead_claims}} WHERE bead_id = $1",
+                child_ref,
+            )
+            assert claim is not None, f"Expected claim for {child_ref}"
+            assert (
+                claim["apex_bead_id"] == setup["task_ref"]
+            ), f"Expected apex to be parent {setup['task_ref']}, got {claim['apex_bead_id']}"
