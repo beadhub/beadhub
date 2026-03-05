@@ -55,6 +55,12 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
             except Exception:
                 logger.error("Failed to cascade task.status_changed", exc_info=True)
 
+        if event_type == "task.deleted":
+            try:
+                await _cascade_task_deleted(db_infra, context)
+            except Exception:
+                logger.error("Failed to cascade task.deleted", exc_info=True)
+
         try:
             event = _translate(event_type, context)
             if event is None:
@@ -219,6 +225,31 @@ async def _cascade_task_status_changed(
                 title=title,
             ),
         )
+
+
+async def _cascade_task_deleted(db_infra: "DatabaseInfra", context: dict) -> None:
+    """Release all claims on a deleted task.
+
+    The task.deleted hook provides only {task_id, task_ref}, so we look up
+    the project from existing claims on that bead_id.
+    """
+    task_ref = context.get("task_ref", "").strip()
+    if not task_ref:
+        return
+
+    server_db = db_infra.get_manager("server")
+    claim = await server_db.fetch_one(
+        "SELECT project_id FROM {{tables.bead_claims}} WHERE bead_id = $1 LIMIT 1",
+        task_ref,
+    )
+    if claim is None:
+        return  # No claims to release
+
+    await release_bead_claims(
+        db_infra,
+        project_id=str(claim["project_id"]),
+        bead_id=task_ref,
+    )
 
 
 async def _alias_for(redis: Redis, workspace_id: str) -> str:

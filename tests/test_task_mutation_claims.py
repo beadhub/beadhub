@@ -102,9 +102,7 @@ async def test_task_claimed_creates_bead_claim(db_infra, redis_client_async):
     """Updating a task to in_progress via aweb API creates a bead_claims row."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             setup = await _setup_agent_with_task(client)
 
             # Claim the task by setting status to in_progress
@@ -135,9 +133,7 @@ async def test_task_claimed_publishes_event(db_infra, redis_client_async):
     """Updating a task to in_progress publishes BeadClaimedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             setup = await _setup_agent_with_task(client)
 
             pubsub = await _subscribe(redis_client_async, setup["workspace_id"])
@@ -164,9 +160,7 @@ async def test_task_closed_releases_claim(db_infra, redis_client_async):
     """Closing a task releases the bead claim and publishes BeadUnclaimedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             setup = await _setup_agent_with_task(client)
 
             # First claim it
@@ -211,3 +205,43 @@ async def test_task_closed_releases_claim(db_infra, redis_client_async):
             finally:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
+
+
+@pytest.mark.asyncio
+async def test_task_deleted_releases_claim(db_infra, redis_client_async):
+    """Deleting a task releases the bead claim."""
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            setup = await _setup_agent_with_task(client)
+
+            # Claim it first
+            resp = await client.patch(
+                f"/v1/tasks/{setup['task_ref']}",
+                headers={"Authorization": f"Bearer {setup['api_key']}"},
+                json={"status": "in_progress"},
+            )
+            assert resp.status_code == 200, resp.text
+            await asyncio.sleep(0.3)
+
+            # Verify claim exists
+            claims = await client.get(
+                "/v1/claims",
+                headers={"Authorization": f"Bearer {setup['api_key']}"},
+            )
+            assert len(claims.json()["claims"]) == 1
+
+            # Delete the task
+            resp = await client.delete(
+                f"/v1/tasks/{setup['task_ref']}",
+                headers={"Authorization": f"Bearer {setup['api_key']}"},
+            )
+            assert resp.status_code == 200, resp.text
+            await asyncio.sleep(0.3)
+
+            # Claim should be gone
+            claims = await client.get(
+                "/v1/claims",
+                headers={"Authorization": f"Bearer {setup['api_key']}"},
+            )
+            assert claims.json()["claims"] == [], "Deleting a task should release all claims"
