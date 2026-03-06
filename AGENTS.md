@@ -43,7 +43,8 @@ uv run pytest              # Python tests
 - Server uses pgdbm for PostgreSQL with template-based table naming. Make sure to use your pgdbm skill and to understand the test fixtures offered by pgdbm b
 efore makign or changing any tests.
 
-- CLI wraps `bdh` (beads) for issue tracking, adds coordination features. It lives in the separate https://github.com/beadhub/bdh repo.
+- Built-in task management via aweb tasks API; also supports beads as an external issue tracker
+- CLI (`bdh`) adds coordination features. It lives in the separate https://github.com/beadhub/bdh repo.
 - Policy defaults loaded from markdown files at startup (hot-reload via reset endpoint)
 - Auth uses per-project API keys (client sends `Authorization: Bearer ...`); bootstrap via `bdh :init` / `POST /v1/init`
 

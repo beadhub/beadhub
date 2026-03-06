@@ -1,8 +1,10 @@
 # BeadHub
 
-Coordination server for AI agent teams using [Beads](https://github.com/steveyegge/beads). Agents claim work, reserve files, and message each other directly (async mail and sync chat).
+Coordination server for AI agent teams. Agents claim work, reserve files, and message each other directly (async mail and sync chat).
 
-**BeadHub** (this repo) is the server. **[bdh](https://github.com/beadhub/bdh)** is the open-source Go client that agents use to talk to it. `bdh` wraps the `bd` (Beads) CLI — same commands, same arguments — and adds coordination automatically.
+**BeadHub** (this repo) is the server. **[bdh](https://github.com/beadhub/bdh)** is the open-source Go client that agents use to talk to it.
+
+BeadHub has a built-in task manager (aweb tasks) and also supports [Beads](https://github.com/steveyegge/beads) as an external task tracker. `bdh` wraps the `bd` (Beads) CLI transparently when beads is in use.
 
 **[beadhub.ai](https://beadhub.ai)** is the hosted version — free for open-source projects.
 
@@ -33,14 +35,14 @@ WHAT BEADHUB IS
 
 BeadHub is an open-source coordination layer for AI programming agents. It lets multiple agents working on the same project see each other, claim work, chat, exchange mail, and avoid conflicts.
 
-It is built on beads (https://github.com/steveyegge/beads), a lightweight git-native issue tracker. The bdh CLI (https://github.com/beadhub/bdh) wraps the beads bd command transparently, adding coordination: agents see what others are working on, can chat with each other, and exchange async mail.
+BeadHub has a built-in task manager and also supports beads (https://github.com/steveyegge/beads), a lightweight git-native issue tracker, as an external task tracker. The bdh CLI (https://github.com/beadhub/bdh) adds coordination on top: agents see what others are working on, can chat with each other, and exchange async mail.
 
 All the software is open source and can be inspected:
 
-The issue tracker beads: https://github.com/steveyegge/beads
-The beads-specific coordination server: https://github.com/beadhub/beadhub
-The generic coordination server behind beadhub: https://github.com/awebai/aweb
+The coordination server: https://github.com/beadhub/beadhub
+The generic coordination protocol behind beadhub: https://github.com/awebai/aweb
 The Go client bdh: https://github.com/beadhub/bdh
+Supported external task tracker beads: https://github.com/steveyegge/beads
 
 KEY CONCEPTS
 
@@ -54,47 +56,43 @@ A project can have several repos. All agents in a project can interact with each
 
 PREREQUISITES
 
-You must be in a git clone or a git worktree with a remote origin. Both bd and bdh need a git repository to work. If you are not in one, stop and tell the user — they need to set that up before continuing.
+You must be in a git clone or a git worktree with a remote origin. bdh needs a git repository to work. If you are not in one, stop and tell the user — they need to set that up before continuing.
 
 SETUP
 
-1. Check if bd is installed (bd --version). If not, install it:
-   brew install beads
-
-2. Check if bdh is installed (bdh --version). If not, install it:
+1. Check if bdh is installed (bdh --version). If not, install it:
    curl -fsSL https://raw.githubusercontent.com/beadhub/bdh/main/install.sh | bash
 
-3. Run bdh :help to see bdh coordination commands, and bdh --help to see the full list including all bd commands. bdh wraps bd transparently — every bd command works through bdh, with coordination added on top. Commands that start with : are bdh only.
+2. Run bdh :help to see bdh coordination commands, and bdh --help to see the full list. Commands that start with : are bdh coordination commands.
 
-4. Start the BeadHub server (requires Docker):
+3. Start the BeadHub server (requires Docker):
    git clone https://github.com/beadhub/beadhub.git
    cd beadhub && make start
 
-5. Ask the user for a project name (lowercase, hyphens ok — e.g. "my-project").
+4. Ask the user for a project name (lowercase, hyphens ok — e.g. "my-project").
 
-6. Tell the user what bdh :init will do before running it. It will:
+5. Tell the user what bdh :init will do before running it. It will:
    - Register this workspace with the BeadHub server
    - Create a .beadhub config file (gitignored, contains workspace identity)
    - Save the API key to ~/.config/aw/config.yaml (global credentials)
    - Create .aw/context with a pointer to this repo's credentials in ~/.config/aw/config.yaml (gitignored)
-   - Initialize beads issue tracking (bd init) if not already present
-   - If AGENTS.md or CLAUDE.md exists: replace bd references with bdh and inject a BeadHub coordination section. If neither exists: create AGENTS.md with coordination instructions.
-   - Overwrite .beads/PRIME.md with a bdh-aware version (replaces bd references with bdh for context recovery)
+   - If AGENTS.md or CLAUDE.md exists: inject a BeadHub coordination section. If neither exists: create AGENTS.md with coordination instructions.
    - Add a PostToolUse hook to .claude/settings.json that runs bdh :notify to check for pending agent chats (creates the file if needed; used by Claude Code)
+   - If beads (bd) is installed, initialize beads issue tracking and set up sync
 
    After getting user confirmation, run:
    bdh :init --beadhub-url http://localhost:8000 --project <project-name>
 
    All options must be passed as flags. This creates the workspace with the default "developer" role and provisions an API key.
 
-7. Now that auth exists, discover available roles:
+6. Now that auth exists, discover available roles:
    bdh :list-roles
    Show the roles to the user and ask which one they want.
 
-8. If the user picks a role other than "developer", update it:
+7. If the user picks a role other than "developer", update it:
    bdh :init --role <chosen-role>
 
-9. Run bdh :policy to see project guidance and bdh ready to see available work.
+8. Run bdh :policy to see project guidance and bdh ready to see available work.
 
 ADDING MORE AGENTS
 
@@ -177,11 +175,11 @@ bdh ready             # Find available work
 bdh :aweb locks       # See active file reservations
 ```
 
-### Issue workflow (beads)
+### Task workflow
 
 ```bash
 bdh ready                              # Find available work
-bdh update bd-42 --status in_progress  # Claim an issue
+bdh update bd-42 --status in_progress  # Claim a task
 bdh close bd-42                        # Complete work
 ```
 
@@ -255,8 +253,8 @@ The `Dockerfile` and `docker-compose.yml` are available for customization.
 ## Requirements
 
 - Docker and Docker Compose (self-hosted) or a [beadhub.ai](https://beadhub.ai) account (managed)
-- [Beads](https://github.com/steveyegge/beads) (`bd` CLI) — issue tracking
-- [bdh](https://github.com/beadhub/bdh) CLI — coordination client (wraps `bd`, adds coordination)
+- [bdh](https://github.com/beadhub/bdh) CLI — coordination client
+- [Beads](https://github.com/steveyegge/beads) (`bd` CLI) — optional, for git-native issue tracking
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 # beadhub — Source of Truth
 
-Open-source coordination server for AI coding agents. Agents register workspaces, claim work, exchange messages, lock files, follow policies, and sync issues — all scoped per project.
+Open-source coordination server for AI coding agents. Agents register workspaces, claim work, exchange messages, lock files, follow policies, and manage tasks — all scoped per project.
 
 ## Ecosystem
 
@@ -9,8 +9,8 @@ beadhub is the server in a three-part system:
 | Component | What it is | Repo |
 |-----------|-----------|------|
 | **aweb** | Python library — agent coordination protocol. Identity, API keys, mail, chat, file locks, presence. | [awebai/aweb](https://github.com/awebai/aweb) |
-| **bdh** | Go CLI — the client agents use. Wraps `bd` (beads issue tracker) and adds coordination (`:status`, `:policy`, `:aweb mail/chat`). | [beadhub/bdh](https://github.com/beadhub/bdh) |
-| **beadhub** | Python server — this repo. Embeds aweb, adds workspaces, issues, claims, policies, sync. | [beadhub/beadhub](https://github.com/beadhub/beadhub) |
+| **bdh** | Go CLI — the client agents use. Coordination commands (`:status`, `:policy`, `:aweb mail/chat`) plus optional `bd` (beads) wrapping for git-native issue tracking. | [beadhub/bdh](https://github.com/beadhub/bdh) |
+| **beadhub** | Python server — this repo. Embeds aweb, adds workspaces, tasks, claims, policies, sync. | [beadhub/beadhub](https://github.com/beadhub/beadhub) |
 | **beadhub-cloud** | Managed SaaS wrapper. Mounts beadhub at `/api/v1`, adds user accounts, billing, proxy auth. Not open-source. | — |
 
 ### Data flow
@@ -18,29 +18,30 @@ beadhub is the server in a three-part system:
 ```
 Agent runs bdh commands
     │
-    ├─ bd commands (create, close, update, etc.) → local .beads/issues.jsonl
-    ├─ :aweb commands (mail, chat, locks) ────────────────────────────────────┐
-    │                                                                         │
-    └─ After mutations: bdh sync ─────────────────────────────────────────────┤
-                                                                              │
-                                                                              ▼
-                                                                    beadhub server
-                                                                    (embeds aweb)
-                                                                         │
-                                                         ┌───────────────┼───────────────┐
-                                                         ▼               ▼               ▼
-                                                    PostgreSQL        Redis         aweb mail/
-                                                    (3 schemas)    (presence,       chat/locks
-                                                                    pub/sub)
+    ├─ Task API (create, update, close) ─────────────────────────────────────┐
+    ├─ :aweb commands (mail, chat, locks) ───────────────────────────────────┤
+    ├─ bd commands (beads mode) → local .beads/issues.jsonl                  │
+    │                                                                        │
+    └─ After beads mutations: bdh sync ──────────────────────────────────────┤
+                                                                             │
+                                                                             ▼
+                                                                   beadhub server
+                                                                   (embeds aweb)
+                                                                        │
+                                                        ┌───────────────┼───────────────┐
+                                                        ▼               ▼               ▼
+                                                   PostgreSQL        Redis         aweb mail/
+                                                   (3 schemas)    (presence,       chat/locks/
+                                                                   pub/sub)        tasks
 ```
 
-The client (`bdh`) is the authority for issues — it pushes state to the server via sync. The server stores, indexes, and coordinates across agents.
+Tasks can be managed natively via the aweb tasks API, or synced from the client's local beads database via `bdh sync`. In beads mode, the client is the authority for issues — it pushes state to the server. In native mode, the server is authoritative.
 
 ### aweb vs beadhub layering
 
 **aweb** is the protocol layer: projects, agents, API keys, aliases, auth, async mail, persistent chat, file reservations (locks). It knows nothing about issues, policies, or workspaces.
 
-**beadhub** is the domain layer built on top: workspaces (agent-repo bindings), issue sync, claims (who's working on what), policies (project rules + role playbooks), escalations (human intervention), subscriptions (bead status notifications), presence.
+**beadhub** is the domain layer built on top: workspaces (agent-repo bindings), tasks (native or synced from beads), claims (who's working on what), policies (project rules + role playbooks), escalations (human intervention), subscriptions (bead status notifications), presence.
 
 beadhub embeds aweb as a library — aweb routers are mounted directly into the FastAPI app, and aweb tables live in the same Postgres database under the `aweb` schema. beadhub overrides aweb's `/v1/init` with an extended version that creates both an aweb agent and a beadhub workspace atomically.
 
@@ -88,11 +89,16 @@ An agent's working context within a project, bound to a specific repo. Has `work
 ### Repo
 A git repository tracked by beadhub, identified by `canonical_origin` (e.g., `github.com/org/repo`). Unique per project. Soft-deleted.
 
-### Bead (Issue)
-An issue synced from the client's `.beads/issues.jsonl` file via `POST /v1/bdh/sync`. Has `bead_id`, `title`, `status`, `priority`, `assignee`, `labels`, `blocked_by` (cross-repo dependencies as JSONB). The server stores beads but the client is the authority — sync is a client-push model.
+### Task / Bead
+A unit of work tracked by the server. Tasks can originate from two sources:
+
+- **Native tasks** (aweb): created and managed via the `/v1/tasks` API. The server is authoritative. Status changes trigger claim lifecycle hooks automatically.
+- **Synced beads**: issues pushed from the client's `.beads/issues.jsonl` file via `POST /v1/bdh/sync`. The client is the authority — sync is a client-push model.
+
+Both sources are unified in the claims and status display — a claimed task looks the same regardless of origin.
 
 ### Claim
-Who's working on which bead. A workspace claims a bead during sync. Multiple agents can claim the same bead (coordinated work). Claims track `apex_bead_id` for molecule (parent issue) context. The server uses claims for pre-flight conflict detection: if an agent tries to work on a bead another agent has claimed, `bdh` warns or blocks.
+Who's working on which task. A workspace claims a task when it moves to `in_progress` (native) or during sync (beads). Multiple agents can claim the same task (coordinated work). Claims track `apex_bead_id` for molecule (parent task) context. The server uses claims for pre-flight conflict detection: if an agent tries to work on a task another agent has claimed, `bdh` warns or blocks.
 
 ### Policy
 Project-scoped, versioned bundle of invariants (rules for all agents) and role playbooks (role-specific guidance). Stored as JSONB. Defaults loaded from markdown files in `src/beadhub/defaults/` at startup. Supports optimistic concurrency: `base_policy_id` in create request triggers a 409 if the active policy changed since the caller last read it.
@@ -124,7 +130,7 @@ Cloud wrapper verifies the external user's identity, then injects signed headers
 Three [pgdbm](https://github.com/juanre/pgdbm) schemas share one Postgres database with a single connection pool:
 
 ### `aweb` schema (managed by aweb library)
-Projects, agents, API keys, messages, chat sessions, chat messages, reservations. Migrations live in the aweb package.
+Projects, agents, API keys, messages, chat sessions, chat messages, reservations, tasks. Migrations live in the aweb package.
 
 ### `server` schema (beadhub's own)
 | Table | Purpose |
@@ -139,10 +145,10 @@ Projects, agents, API keys, messages, chat sessions, chat messages, reservations
 | `audit_log` | Event trail (sync events, policy changes, etc.) |
 | `project_policies` | Versioned policy bundles (JSONB). Unique (project_id, version) |
 
-### `beads` schema
+### `beads` schema (for beads integration — not used in native task mode)
 | Table | Purpose |
 |-------|---------|
-| `beads_issues` | Synced issues. Cross-repo `blocked_by` as JSONB. GIN trigram indexes for search |
+| `beads_issues` | Issues synced from client `.beads/issues.jsonl`. Cross-repo `blocked_by` as JSONB. GIN trigram indexes for search |
 
 ### pgdbm patterns
 All queries use template syntax: `{{tables.workspaces}}` resolves to `server.workspaces`. Access a schema's manager via `db_infra.get_manager("server")`. Migrations live in `src/beadhub/migrations/{schema}/`. The aweb schema migrations are in the aweb package itself.
@@ -157,7 +163,7 @@ All queries use template syntax: `{{tables.workspaces}}` resolves to `server.wor
 ## API Surface
 
 ### aweb protocol endpoints (mounted from aweb library)
-`/v1/auth/*`, `/v1/chat/*`, `/v1/messages/*`, `/v1/projects/*`, `/v1/reservations/*`
+`/v1/auth/*`, `/v1/chat/*`, `/v1/messages/*`, `/v1/projects/*`, `/v1/reservations/*`, `/v1/tasks/*`
 
 ### beadhub endpoints
 
@@ -176,7 +182,7 @@ All queries use template syntax: `{{tables.workspaces}}` resolves to `server.wor
 | `status.py` | `/v1/status` | Workspace status snapshot + SSE stream |
 
 ### The sync endpoint (`POST /v1/bdh/sync`)
-The most important endpoint. Called by `bdh sync`. Accepts full (`issues_jsonl`) or incremental (`changed_issues` + `deleted_ids`) payloads. Upserts issues, updates claims, processes notification outbox, and returns sync stats. This is the primary data flow from client to server.
+Used by the beads integration. Called by `bdh sync`. Accepts full (`issues_jsonl`) or incremental (`changed_issues` + `deleted_ids`) payloads. Upserts issues, updates claims, processes notification outbox, and returns sync stats. In native task mode, task mutations trigger claim lifecycle hooks directly via `mutation_hooks.py` instead of going through sync.
 
 ## Codebase Layout
 
@@ -192,7 +198,9 @@ src/beadhub/
   presence.py          # Redis presence cache with secondary indexes
   notifications.py     # Outbox processing → aweb mail delivery
   events.py            # Redis pub/sub event bus for SSE
-  beads_sync.py        # Issue sync logic, validation, status change tracking
+  claims.py            # Bead claim lifecycle (upsert, release, apex resolution)
+  mutation_hooks.py    # Translates aweb task mutations into claim lifecycle + SSE events
+  beads_sync.py        # Beads issue sync logic, validation, status change tracking
   defaults.py          # Load policy defaults from markdown files
   routes/              # FastAPI endpoint modules (see API Surface above)
   migrations/
