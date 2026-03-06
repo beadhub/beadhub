@@ -338,7 +338,7 @@ export function IssuesPage() {
     ],
     queryFn: () =>
       api.listTasks({
-        status: statusFilter === "active" ? undefined : statusFilter || undefined,
+        status: statusFilter === "active" ? "open,in_progress" : statusFilter || undefined,
         task_type: typeFilter === "all" ? undefined : typeFilter,
         q: searchQuery || undefined,
         limit: 50,
@@ -347,17 +347,13 @@ export function IssuesPage() {
   })
 
   // Sync query data to local state (fixes navigation cache bug + enables pagination)
-  // Client-side filter for "active" tab since the backend doesn't support comma-separated statuses
   useEffect(() => {
     if (data) {
-      const tasks = statusFilter === "active"
-        ? data.tasks.filter(t => t.status !== "closed")
-        : data.tasks
-      setAllIssues(tasks)
+      setAllIssues(data.tasks)
       setNextCursor(data.next_cursor ?? null)
       setHasMore(data.has_more ?? false)
     }
-  }, [data, statusFilter])
+  }, [data])
 
   // Load more tasks
   const handleLoadMore = useCallback(async () => {
@@ -366,7 +362,7 @@ export function IssuesPage() {
     setIsLoadingMore(true)
     try {
       const result = await api.listTasks({
-        status: statusFilter === "active" ? undefined : statusFilter || undefined,
+        status: statusFilter === "active" ? "open,in_progress" : statusFilter || undefined,
         task_type: typeFilter === "all" ? undefined : typeFilter,
         q: searchQuery || undefined,
         limit: 50,
