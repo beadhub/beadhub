@@ -81,8 +81,13 @@ async def _fetch_beads_issues(
     idx = 2
 
     if status is not None:
-        conditions.append(f"status = ${idx}")
-        params.append(status)
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            conditions.append(f"status = ${idx}")
+            params.append(statuses[0])
+        else:
+            conditions.append(f"status = ANY(${idx})")
+            params.append(statuses)
         idx += 1
 
     if task_type is not None:
