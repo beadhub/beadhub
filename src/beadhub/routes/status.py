@@ -20,7 +20,7 @@ from ..presence import (
     list_agent_presences_by_workspace_ids,
 )
 from ..redis_client import get_redis
-from .workspaces import is_valid_canonical_origin
+from .workspaces import _title_join, is_valid_canonical_origin
 
 DEFAULT_WORKSPACE_LIMIT = 200
 MAX_WORKSPACE_LIMIT = 1000
@@ -336,8 +336,6 @@ async def status(
 
     # Query claims with a count of how many workspaces have claimed each bead.
     # Title resolved from aweb tasks (primary) with beads_issues fallback.
-    from .workspaces import _title_join
-
     claim_rows = await server_db.fetch_all(
         f"""
         SELECT c.bead_id, c.workspace_id, c.alias, c.human_name, c.claimed_at, c.project_id,
