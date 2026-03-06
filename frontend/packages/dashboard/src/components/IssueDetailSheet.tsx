@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useApi } from "../hooks/useApi"
-import { AlertTriangle, Calendar, Clock, GitBranch, Tag, User, Copy, Check } from "lucide-react"
+import { AlertTriangle, Calendar, Clock, Tag, User, Copy, Check } from "lucide-react"
 import { Markdown } from "./Markdown"
 import {
   Sheet,
@@ -12,7 +12,7 @@ import {
 } from "./ui/sheet"
 import { Badge } from "./ui/badge"
 import { Separator } from "./ui/separator"
-import { type ApiClient, type BeadIssue } from "../lib/api"
+import { type ApiClient, type Task } from "../lib/api"
 import { cn, formatRelativeTime } from "../lib/utils"
 
 const statusStyles: Record<string, { dot: string; label: string }> = {
@@ -38,9 +38,9 @@ const typeIcons: Record<string, string> = {
 }
 
 interface IssueDetailSheetProps {
-  issue: BeadIssue | null
+  issue: Task | null
   onClose: () => void
-  onNavigate: (beadId: string) => void
+  onNavigate: (taskRef: string) => void
 }
 
 export function IssueDetailSheet({
@@ -51,12 +51,12 @@ export function IssueDetailSheet({
   const [copied, setCopied] = useState(false)
   const copyTimeoutRef = useRef<number | null>(null)
   const api = useApi<ApiClient>()
-  const beadId = initialIssue?.bead_id
+  const taskRef = initialIssue?.task_ref
 
   const { data: fetchedIssue, isLoading } = useQuery({
-    queryKey: ["bead-issue", beadId],
-    queryFn: () => api.getBeadIssue(beadId!),
-    enabled: !!beadId,
+    queryKey: ["task", taskRef],
+    queryFn: () => api.getTask(taskRef!),
+    enabled: !!taskRef,
   })
 
   // Merge fetched issue (has description) with initial issue (has timestamps from list)
@@ -78,14 +78,14 @@ export function IssueDetailSheet({
   }, [])
 
   const handleCopyId = async () => {
-    if (issue?.bead_id) {
+    if (issue?.task_ref) {
       try {
-        await navigator.clipboard.writeText(issue.bead_id)
+        await navigator.clipboard.writeText(issue.task_ref)
         setCopied(true)
         if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
         copyTimeoutRef.current = window.setTimeout(() => setCopied(false), 1500)
       } catch (err) {
-        console.error("Failed to copy bead ID:", err)
+        console.error("Failed to copy task ref:", err)
       }
     }
   }
@@ -110,9 +110,9 @@ export function IssueDetailSheet({
                 variant="outline"
                 className="font-mono text-xs tracking-tight cursor-pointer hover:bg-accent hover:text-accent-foreground group/badge"
                 onClick={handleCopyId}
-                title="Click to copy bead ID"
+                title="Click to copy task ref"
               >
-                {issue?.bead_id}
+                {issue?.task_ref}
                 {copied ? (
                   <Check className="h-3 w-3 ml-1.5 text-green-500" />
                 ) : (
@@ -139,15 +139,8 @@ export function IssueDetailSheet({
             {/* Meta row */}
             {issue && (
               <SheetDescription className="flex items-center gap-2 text-xs">
-                <span className={cn("font-medium", typeIcons[issue.type] || "text-muted-foreground")}>
-                  {issue.type}
-                </span>
-                <span className="text-muted-foreground/50">in</span>
-                <span className="font-medium font-mono">{issue.repo}</span>
-                <span className="text-muted-foreground/50">/</span>
-                <span className="flex items-center gap-1 font-mono">
-                  <GitBranch className="h-3 w-3" />
-                  {issue.branch}
+                <span className={cn("font-medium", typeIcons[issue.task_type] || "text-muted-foreground")}>
+                  {issue.task_type}
                 </span>
               </SheetDescription>
             )}
@@ -185,7 +178,7 @@ export function IssueDetailSheet({
               <Separator />
 
               {/* Created by */}
-              {issue.created_by && (
+              {issue.created_by_agent_id && (
                 <section>
                   <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
                     Created by
@@ -194,24 +187,24 @@ export function IssueDetailSheet({
                     <div className="h-6 w-6 rounded-full bg-accent flex items-center justify-center">
                       <User className="h-3.5 w-3.5 text-muted-foreground" />
                     </div>
-                    <span className="text-sm font-medium">{issue.created_by}</span>
+                    <span className="text-sm font-medium">{issue.created_by_agent_id}</span>
                   </div>
                 </section>
               )}
 
-              {issue.created_by && <Separator />}
+              {issue.created_by_agent_id && <Separator />}
 
               {/* Assignee */}
               <section>
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
                   Assignee
                 </h3>
-                {issue.assignee ? (
+                {issue.assignee_agent_id ? (
                   <div className="flex items-center gap-2">
                     <div className="h-6 w-6 rounded-full bg-accent flex items-center justify-center">
                       <User className="h-3.5 w-3.5 text-muted-foreground" />
                     </div>
-                    <span className="text-sm font-medium">{issue.assignee}</span>
+                    <span className="text-sm font-medium">{issue.assignee_agent_id}</span>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground italic">
@@ -292,21 +285,46 @@ export function IssueDetailSheet({
                       Blocked by
                     </h3>
                     <div className="space-y-2">
-                      {issue.blocked_by.map((blocker) => (
+                      {issue.blocked_by.map((blockerRef) => (
                         <div
-                          key={blocker.bead_id}
+                          key={blockerRef}
                           className="flex items-center gap-2 p-2 rounded-md border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 transition-colors cursor-pointer"
-                          onClick={() => onNavigate(blocker.bead_id)}
+                          onClick={() => onNavigate(blockerRef)}
                         >
                           <Badge
                             variant="outline"
                             className="font-mono text-xs border-amber-500/30 text-amber-500 hover:bg-amber-500/20"
                           >
-                            {blocker.bead_id}
+                            {blockerRef}
                           </Badge>
-                          <span className="text-xs text-muted-foreground font-mono">
-                            {blocker.repo} / {blocker.branch}
-                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {/* Blocks */}
+              {issue.blocks && issue.blocks.length > 0 && (
+                <>
+                  <Separator />
+                  <section>
+                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                      Blocks
+                    </h3>
+                    <div className="space-y-2">
+                      {issue.blocks.map((blockedRef) => (
+                        <div
+                          key={blockedRef}
+                          className="flex items-center gap-2 p-2 rounded-md border hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => onNavigate(blockedRef)}
+                        >
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-xs"
+                          >
+                            {blockedRef}
+                          </Badge>
                         </div>
                       ))}
                     </div>

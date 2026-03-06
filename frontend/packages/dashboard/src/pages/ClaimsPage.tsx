@@ -7,7 +7,7 @@ import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
 import { IssueDetailSheet } from "../components/IssueDetailSheet"
 import { Pagination } from "../components/Pagination"
-import { type ApiClient, type Claim, type BeadIssue } from "../lib/api"
+import { type ApiClient, type Claim, type Task } from "../lib/api"
 import { cn, formatRelativeTime } from "../lib/utils"
 
 function ConflictCard({ beadId, claims, onSelect }: {
@@ -33,7 +33,7 @@ function ConflictCard({ beadId, claims, onSelect }: {
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = window.setTimeout(() => setCopied(false), 1500)
     } catch (err) {
-      console.error("Failed to copy bead ID:", err)
+      console.error("Failed to copy task ref:", err)
     }
   }
 
@@ -59,7 +59,7 @@ function ConflictCard({ beadId, claims, onSelect }: {
                 variant="outline"
                 className="font-mono text-xs cursor-pointer hover:bg-accent hover:text-accent-foreground group/badge"
                 onClick={handleCopyId}
-                title="Click to copy bead ID"
+                title="Click to copy task ref"
               >
                 {beadId}
                 {copied ? (
@@ -116,7 +116,7 @@ function ClaimCard({ claim, onSelect }: {
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = window.setTimeout(() => setCopied(false), 1500)
     } catch (err) {
-      console.error("Failed to copy bead ID:", err)
+      console.error("Failed to copy task ref:", err)
     }
   }
 
@@ -139,7 +139,7 @@ function ClaimCard({ claim, onSelect }: {
                 variant="outline"
                 className="font-mono text-xs cursor-pointer hover:bg-accent hover:text-accent-foreground group/badge"
                 onClick={handleCopyId}
-                title="Click to copy bead ID"
+                title="Click to copy task ref"
               >
                 {claim.bead_id}
                 {copied ? (
@@ -174,7 +174,7 @@ function ClaimCard({ claim, onSelect }: {
 
 export function ClaimsPage() {
   const api = useApi<ApiClient>()
-  const [selectedIssue, setSelectedIssue] = useState<BeadIssue | null>(null)
+  const [selectedIssue, setSelectedIssue] = useState<Task | null>(null)
   const [allClaims, setAllClaims] = useState<Claim[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -221,13 +221,13 @@ export function ClaimsPage() {
     }
   }, [nextCursor, isLoadingMore])
 
-  // Fetch issue on demand when user clicks a claim
-  const handleSelectClaim = async (beadId: string) => {
+  // Fetch task on demand when user clicks a claim
+  const handleSelectClaim = async (taskRef: string) => {
     try {
-      const issue = await api.getBeadIssue(beadId)
-      setSelectedIssue(issue)
+      const task = await api.getTask(taskRef)
+      setSelectedIssue(task)
     } catch (e) {
-      console.error("Failed to fetch issue:", e)
+      console.error("Failed to fetch task:", e)
     }
   }
 
@@ -300,7 +300,7 @@ export function ClaimsPage() {
               No active claims
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Claims are created when a workspace starts working on a bead
+              Claims are created when a workspace starts working on a task
             </p>
           </CardContent>
         </Card>

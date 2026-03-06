@@ -39,7 +39,7 @@ function App() {
                   <Route path="getting-started" element={<GettingStartedPage />} />
                   <Route path="workspaces" element={<WorkspacesPage />} />
                   <Route path="escalations" element={<EscalationsPage />} />
-                  <Route path="beads" element={<IssuesPage />} />
+                  <Route path="tasks" element={<IssuesPage />} />
                   <Route path="claims" element={<ClaimsPage />} />
                   <Route path="messages" element={<MessagesPage />} />
                   <Route path="chat" element={<ChatPage />} />

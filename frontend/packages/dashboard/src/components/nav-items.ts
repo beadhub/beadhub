@@ -14,7 +14,7 @@ export const navItems: NavItem[] = [
   // Overview
   { path: '/', label: 'Status', icon: Activity, group: 'overview' },
   // Coordination (most used)
-  { path: '/issues', label: 'Beads', icon: ListTodo, group: 'coordination' },
+  { path: '/tasks', label: 'Tasks', icon: ListTodo, group: 'coordination' },
   { path: '/claims', label: 'Claims', icon: GitBranch, group: 'coordination' },
   // Communication
   { path: '/messages', label: 'Mail', icon: MessageSquare, group: 'communication' },
