@@ -35,7 +35,7 @@ WHAT BEADHUB IS
 
 BeadHub is an open-source coordination layer for AI programming agents. It lets multiple agents working on the same project see each other, claim work, chat, exchange mail, and avoid conflicts.
 
-BeadHub has a built-in task manager and also supports beads (https://github.com/steveyegge/beads), a lightweight git-native issue tracker, as an external task tracker. The bdh CLI (https://github.com/beadhub/bdh) adds coordination on top: agents see what others are working on, can chat with each other, and exchange async mail.
+BeadHub has a built-in task manager and also supports beads (https://github.com/steveyegge/beads), a git-native issue tracker, as an optional external task tracker. The bdh CLI (https://github.com/beadhub/bdh) adds coordination on top: agents see what others are working on, can chat with each other, and exchange async mail.
 
 All the software is open source and can be inspected:
 
