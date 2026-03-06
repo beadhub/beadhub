@@ -30,11 +30,11 @@ import {
 import { Input } from "../components/ui/input"
 import { IssueDetailSheet } from "../components/IssueDetailSheet"
 import { Pagination } from "../components/Pagination"
-import { type ApiClient, type BeadIssue } from "../lib/api"
+import { type ApiClient, type Task } from "../lib/api"
 import { useStore } from "../hooks/useStore"
 import { cn, formatRelativeTime } from "../lib/utils"
 
-type SortedIssue = BeadIssue & {
+type SortedIssue = Task & {
   _indentLevel: number
   _hasChildren: boolean
   _parentId?: string
@@ -77,15 +77,13 @@ const statusColors: Record<string, string> = {
 function IssueCard({
   issue,
   onSelect,
-  onSelectCreator,
   indentLevel = 0,
   hasChildren = false,
   isCollapsed = false,
   onToggleCollapse,
 }: {
-  issue: BeadIssue
-  onSelect: (issue: BeadIssue) => void
-  onSelectCreator?: (creator: string) => void
+  issue: Task
+  onSelect: (issue: Task) => void
   indentLevel?: number
   hasChildren?: boolean
   isCollapsed?: boolean
@@ -104,12 +102,12 @@ function IssueCard({
   const handleCopyId = async (e: React.MouseEvent) => {
     e.stopPropagation()
     try {
-      await navigator.clipboard.writeText(issue.bead_id)
+      await navigator.clipboard.writeText(issue.task_ref)
       setCopied(true)
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = window.setTimeout(() => setCopied(false), 1500)
     } catch (err) {
-      console.error("Failed to copy bead ID:", err)
+      console.error("Failed to copy task ref:", err)
     }
   }
 
@@ -152,51 +150,44 @@ function IssueCard({
                 variant="outline"
                 className="font-mono text-xs cursor-pointer hover:bg-accent hover:text-accent-foreground group/badge"
                 onClick={handleCopyId}
-                title="Click to copy bead ID"
+                title="Click to copy task ref"
               >
-                {issue.bead_id}
+                {issue.task_ref}
                 {copied ? (
                   <Check className="h-3 w-3 ml-1.5 text-green-500" />
                 ) : (
                   <Copy className="h-3 w-3 ml-1.5 opacity-40 group-hover/badge:opacity-100" />
                 )}
               </Badge>
-              <span>·</span>
-              <span className="font-mono">{issue.repo}</span>
-              {issue.type && (
+              {issue.task_type && (
                 <>
                   <span>·</span>
-                  <span>{issue.type}</span>
+                  <span>{issue.task_type}</span>
                 </>
               )}
-              {issue.assignee && (
+              {issue.assignee_agent_id && (
                 <>
                   <span>·</span>
                   <span className="flex items-center gap-1">
                     <User className="h-3 w-3" />
-                    {issue.assignee}
+                    {issue.assignee_agent_id}
                   </span>
                 </>
               )}
-              {issue.created_by && (
+              {issue.created_by_agent_id && (
                 <>
                   <span>·</span>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
-                    onClick={() => onSelectCreator?.(issue.created_by!)}
-                    title={`Filter by creator: ${issue.created_by}`}
-                  >
+                  <span className="flex items-center gap-1">
                     <User className="h-3 w-3" />
-                    {issue.created_by}
-                  </button>
+                    {issue.created_by_agent_id}
+                  </span>
                 </>
               )}
               {hasBlockers && (
                 <>
                   <span>·</span>
                   <span className="text-warning">
-                    blocked by {issue.blocked_by.length}
+                    blocked by {issue.blocked_by!.length}
                   </span>
                 </>
               )}
@@ -247,27 +238,27 @@ const DEBOUNCE_MS = 300
 
 export function IssuesPage() {
   const api = useApi<ApiClient>()
-  const { repoFilter, createdByFilter, setCreatedByFilter } = useStore()
+  const { repoFilter } = useStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = useState<string>("active")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [viewMode, setViewMode] = useState<string>(() => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem("beads-view-mode") || "flat"
+      return localStorage.getItem("tasks-view-mode") || "flat"
     }
     return "flat"
   })
   const [sortOrder, setSortOrder] = useState<string>(() => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem("beads-sort-order") || "priority"
+      return localStorage.getItem("tasks-sort-order") || "priority"
     }
     return "priority"
   })
-  const [selectedIssue, setSelectedIssue] = useState<BeadIssue | null>(null)
-  const [collapsedBeads, setCollapsedBeads] = useState<Set<string>>(new Set())
+  const [selectedIssue, setSelectedIssue] = useState<Task | null>(null)
+  const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(new Set())
 
   // Pagination state
-  const [allIssues, setAllIssues] = useState<BeadIssue[]>([])
+  const [allIssues, setAllIssues] = useState<Task[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -325,14 +316,14 @@ export function IssuesPage() {
 
   // Persist view preferences to localStorage
   useEffect(() => {
-    localStorage.setItem("beads-view-mode", viewMode)
+    localStorage.setItem("tasks-view-mode", viewMode)
   }, [viewMode])
 
   useEffect(() => {
-    localStorage.setItem("beads-sort-order", sortOrder)
+    localStorage.setItem("tasks-sort-order", sortOrder)
   }, [sortOrder])
 
-  // All issues query using global filters
+  // All tasks query using global filters
   const {
     data,
     isLoading,
@@ -340,19 +331,15 @@ export function IssuesPage() {
     refetch,
   } = useQuery({
     queryKey: [
-      "beads-issues-all",
-      repoFilter,
-      createdByFilter,
+      "tasks-all",
       statusFilter,
       typeFilter,
       searchQuery,
     ],
     queryFn: () =>
-      api.listBeadIssues({
-        repo: repoFilter || undefined,
-        createdBy: createdByFilter || undefined,
+      api.listTasks({
         status: statusFilter === "active" ? "open,in_progress" : statusFilter || undefined,
-        type: typeFilter === "all" ? undefined : typeFilter,
+        task_type: typeFilter === "all" ? undefined : typeFilter,
         q: searchQuery || undefined,
         limit: 50,
       }),
@@ -362,42 +349,40 @@ export function IssuesPage() {
   // Sync query data to local state (fixes navigation cache bug + enables pagination)
   useEffect(() => {
     if (data) {
-      setAllIssues(data.issues)
-      setNextCursor(data.next_cursor)
-      setHasMore(data.has_more)
+      setAllIssues(data.tasks)
+      setNextCursor(data.next_cursor ?? null)
+      setHasMore(data.has_more ?? false)
     }
   }, [data])
 
-  // Load more issues
+  // Load more tasks
   const handleLoadMore = useCallback(async () => {
     if (!nextCursor || isLoadingMore) return
 
     setIsLoadingMore(true)
     try {
-      const result = await api.listBeadIssues({
-        repo: repoFilter || undefined,
-        createdBy: createdByFilter || undefined,
+      const result = await api.listTasks({
         status: statusFilter === "active" ? "open,in_progress" : statusFilter || undefined,
-        type: typeFilter === "all" ? undefined : typeFilter,
+        task_type: typeFilter === "all" ? undefined : typeFilter,
         q: searchQuery || undefined,
         limit: 50,
         cursor: nextCursor,
       })
-      setAllIssues(prev => [...prev, ...result.issues])
-      setNextCursor(result.next_cursor)
-      setHasMore(result.has_more)
+      setAllIssues(prev => [...prev, ...result.tasks])
+      setNextCursor(result.next_cursor ?? null)
+      setHasMore(result.has_more ?? false)
     } finally {
       setIsLoadingMore(false)
     }
-  }, [nextCursor, isLoadingMore, api, repoFilter, createdByFilter, statusFilter, typeFilter, searchQuery])
+  }, [nextCursor, isLoadingMore, api, statusFilter, typeFilter, searchQuery])
 
-  const toggleCollapse = useCallback((beadId: string) => {
-    setCollapsedBeads(prev => {
+  const toggleCollapse = useCallback((taskId: string) => {
+    setCollapsedTasks(prev => {
       const next = new Set(prev)
-      if (next.has(beadId)) {
-        next.delete(beadId)
+      if (next.has(taskId)) {
+        next.delete(taskId)
       } else {
-        next.add(beadId)
+        next.add(taskId)
       }
       return next
     })
@@ -406,23 +391,22 @@ export function IssuesPage() {
   const collapseAll = useCallback(() => {
     if (allIssues.length === 0) return
     const allParentIds = new Set<string>()
-    const beadIds = new Set(allIssues.map(i => i.bead_id))
+    const taskIds = new Set(allIssues.map(i => i.task_id))
     for (const issue of allIssues) {
-      const parentBeadId = issue.parent_id?.bead_id
-      if (parentBeadId && beadIds.has(parentBeadId)) {
-        allParentIds.add(parentBeadId)
+      if (issue.parent_task_id && taskIds.has(issue.parent_task_id)) {
+        allParentIds.add(issue.parent_task_id)
       }
     }
-    setCollapsedBeads(allParentIds)
+    setCollapsedTasks(allParentIds)
   }, [allIssues])
 
   const expandAll = useCallback(() => {
-    setCollapsedBeads(new Set())
+    setCollapsedTasks(new Set())
   }, [])
 
   // Get sort comparator based on sortOrder
   const getSortComparator = useCallback((order: string) => {
-    return (a: BeadIssue, b: BeadIssue): number => {
+    return (a: Task, b: Task): number => {
       if (order === "recent") {
         const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0
         const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0
@@ -451,44 +435,43 @@ export function IssuesPage() {
         .map(i => ({ ...i, _indentLevel: 0, _hasChildren: false }))
     }
 
-    // Tree view: build hierarchy using parent_id
-    const beadIds = new Set(issues.map(i => i.bead_id))
+    // Tree view: build hierarchy using parent_task_id
+    const taskIds = new Set(issues.map(i => i.task_id))
 
-    // Build children map: parent_bead_id -> children
-    const childrenMap = new Map<string, BeadIssue[]>()
+    // Build children map: parent task_id -> children
+    const childrenMap = new Map<string, Task[]>()
     for (const issue of issues) {
-      const parentBeadId = issue.parent_id?.bead_id
-      if (parentBeadId && beadIds.has(parentBeadId)) {
-        if (!childrenMap.has(parentBeadId)) {
-          childrenMap.set(parentBeadId, [])
+      const parentId = issue.parent_task_id
+      if (parentId && taskIds.has(parentId)) {
+        if (!childrenMap.has(parentId)) {
+          childrenMap.set(parentId, [])
         }
-        childrenMap.get(parentBeadId)!.push(issue)
+        childrenMap.get(parentId)!.push(issue)
       }
     }
 
-    // Find root beads (no parent_id or parent not in current set)
+    // Find root tasks (no parent_task_id or parent not in current set)
     const roots = issues.filter(i => {
-      const parentBeadId = i.parent_id?.bead_id
-      return !parentBeadId || !beadIds.has(parentBeadId)
+      return !i.parent_task_id || !taskIds.has(i.parent_task_id)
     })
 
     // Sort roots using the selected sort order
     roots.sort(comparator)
 
     // Build flat list with indentation levels and children info
-    const result: Array<BeadIssue & { _indentLevel: number; _hasChildren: boolean; _parentId?: string }> = []
+    const result: Array<Task & { _indentLevel: number; _hasChildren: boolean; _parentId?: string }> = []
     const visited = new Set<string>()
 
-    const addWithChildren = (issue: BeadIssue, level: number, parentId?: string) => {
-      if (visited.has(issue.bead_id)) return
-      visited.add(issue.bead_id)
-      const children = childrenMap.get(issue.bead_id) || []
+    const addWithChildren = (issue: Task, level: number, parentId?: string) => {
+      if (visited.has(issue.task_id)) return
+      visited.add(issue.task_id)
+      const children = childrenMap.get(issue.task_id) || []
       result.push({ ...issue, _indentLevel: level, _hasChildren: children.length > 0, _parentId: parentId })
 
       // Sort children using the selected sort order
       children.sort(comparator)
       for (const child of children) {
-        addWithChildren(child, level + 1, issue.bead_id)
+        addWithChildren(child, level + 1, issue.task_id)
       }
     }
 
@@ -496,9 +479,9 @@ export function IssuesPage() {
       addWithChildren(root, 0)
     }
 
-    // Add any orphaned beads (in case of circular dependencies)
+    // Add any orphaned tasks (in case of circular dependencies)
     for (const issue of issues) {
-      if (!visited.has(issue.bead_id)) {
+      if (!visited.has(issue.task_id)) {
         result.push({ ...issue, _indentLevel: 0, _hasChildren: false })
       }
     }
@@ -508,20 +491,20 @@ export function IssuesPage() {
 
   // Filter out collapsed children
   const visibleIssues = useMemo((): SortedIssue[] => {
-    if (viewMode !== "tree" || collapsedBeads.size === 0) {
+    if (viewMode !== "tree" || collapsedTasks.size === 0) {
       return sortedIssues
     }
 
     // Check if any ancestor is collapsed
     const findCollapsedAncestor = (issue: SortedIssue): boolean => {
       if (!issue._parentId) return false
-      if (collapsedBeads.has(issue._parentId)) return true
-      const parent = sortedIssues.find(i => i.bead_id === issue._parentId)
+      if (collapsedTasks.has(issue._parentId)) return true
+      const parent = sortedIssues.find(i => i.task_id === issue._parentId)
       return parent ? findCollapsedAncestor(parent) : false
     }
 
     return sortedIssues.filter(issue => !findCollapsedAncestor(issue))
-  }, [sortedIssues, viewMode, collapsedBeads])
+  }, [sortedIssues, viewMode, collapsedTasks])
 
   // Build scope label
   const scopeLabel = repoFilter
@@ -533,7 +516,7 @@ export function IssuesPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Beads</h1>
+          <h1 className="text-xl font-semibold">Tasks</h1>
           <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -546,7 +529,7 @@ export function IssuesPage() {
               value={searchInput}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-9 pr-8 h-9"
-              aria-label="Search beads by ID or title"
+              aria-label="Search tasks by ref or title"
             />
             {searchQuery && (
               <button
@@ -575,8 +558,8 @@ export function IssuesPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={collapsedBeads.size > 0 ? expandAll : collapseAll}
-              title={collapsedBeads.size > 0 ? "Expand all" : "Collapse all"}
+              onClick={collapsedTasks.size > 0 ? expandAll : collapseAll}
+              title={collapsedTasks.size > 0 ? "Expand all" : "Collapse all"}
             >
               <ChevronsUpDown className="h-4 w-4" />
             </Button>
@@ -630,7 +613,7 @@ export function IssuesPage() {
             <Card className="border-destructive">
               <CardContent className="p-4">
                 <p className="text-sm text-destructive">
-                  Failed to load beads: {(error as Error).message}
+                  Failed to load tasks: {(error as Error).message}
                 </p>
               </CardContent>
             </Card>
@@ -639,7 +622,7 @@ export function IssuesPage() {
           {/* Loading State */}
           {isLoading && !data && (
             <div className="text-center py-12 text-muted-foreground">
-              Loading beads...
+              Loading tasks...
             </div>
           )}
 
@@ -650,12 +633,12 @@ export function IssuesPage() {
                 <ListTodo className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
                 <p className="text-muted-foreground">
                   {searchQuery
-                    ? `No beads matching "${searchQuery}"`
+                    ? `No tasks matching "${searchQuery}"`
                     : statusFilter === "active"
-                    ? "No active beads"
+                    ? "No active tasks"
                     : statusFilter === "closed"
-                    ? "No closed beads"
-                    : "No beads found"}
+                    ? "No closed tasks"
+                    : "No tasks found"}
                 </p>
                 {searchQuery && (
                   <Button
@@ -675,17 +658,16 @@ export function IssuesPage() {
             <div className="grid gap-2">
               {visibleIssues.map((issue) => (
                 <div
-                  key={issue.bead_id}
+                  key={issue.task_id}
                   style={{ marginLeft: (issue._indentLevel || 0) * 20 }}
                 >
                   <IssueCard
                     issue={issue}
                     onSelect={setSelectedIssue}
-                    onSelectCreator={(creator) => setCreatedByFilter(creator)}
                     indentLevel={issue._indentLevel || 0}
                     hasChildren={issue._hasChildren || false}
-                    isCollapsed={collapsedBeads.has(issue.bead_id)}
-                    onToggleCollapse={() => toggleCollapse(issue.bead_id)}
+                    isCollapsed={collapsedTasks.has(issue.task_id)}
+                    onToggleCollapse={() => toggleCollapse(issue.task_id)}
                   />
                 </div>
               ))}
@@ -706,8 +688,8 @@ export function IssuesPage() {
       <IssueDetailSheet
         issue={selectedIssue}
         onClose={() => setSelectedIssue(null)}
-        onNavigate={(beadId) => {
-          const issue = allIssues.find((i) => i.bead_id === beadId)
+        onNavigate={(taskRef) => {
+          const issue = allIssues.find((i) => i.task_ref === taskRef)
           if (issue) setSelectedIssue(issue)
         }}
       />

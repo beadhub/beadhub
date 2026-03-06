@@ -56,23 +56,26 @@ export interface EscalationDetail {
   expires_at: string | null
 }
 
-export interface BeadIssue {
-  bead_id: string
-  project_id: string
-  repo: string
-  branch: string
+export interface Task {
+  task_id: string
+  task_ref: string
+  task_number: number
   title: string
-  description?: string | null
   status: string
   priority: number
-  type: string
-  assignee: string | null
-  created_by?: string | null
+  task_type: string
   labels: string[]
-  blocked_by: Array<{ repo: string; branch: string; bead_id: string }>
-  parent_id: { repo: string; branch: string; bead_id: string } | null
+  description?: string | null
+  notes?: string | null
+  parent_task_id?: string | null
+  assignee_agent_id?: string | null
+  created_by_agent_id?: string | null
+  blocked_by?: string[]
+  blocks?: string[]
+  closed_by_agent_id?: string | null
   created_at?: string | null
   updated_at?: string | null
+  closed_at?: string | null
 }
 
 export interface InboxMessage {
@@ -349,21 +352,18 @@ export interface ApiClient {
     responded_at: string
   }>
 
-  // Beads issues
-  listBeadIssues(filters?: {
-    repo?: string
-    branch?: string
+  // Tasks
+  listTasks(filters?: {
     status?: string
-    type?: string
-    assignee?: string
-    createdBy?: string
-    label?: string
-    beadIds?: string[]
+    assignee_agent_id?: string
+    task_type?: string
+    priority?: string
+    labels?: string
     q?: string
     limit?: number
     cursor?: string
-  }): Promise<{ issues: BeadIssue[]; count: number; synced_at: string | null; has_more: boolean; next_cursor: string | null }>
-  getBeadIssue(beadId: string): Promise<BeadIssue>
+  }): Promise<{ tasks: Task[]; has_more?: boolean; next_cursor?: string | null }>
+  getTask(ref: string): Promise<Task>
 
   // Messages
   fetchInbox(

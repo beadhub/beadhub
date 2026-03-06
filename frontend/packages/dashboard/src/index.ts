@@ -28,7 +28,7 @@ export type {
   Claim,
   EscalationSummary,
   EscalationDetail,
-  BeadIssue,
+  Task,
   InboxMessage,
   PendingConversation,
   ChatSession,

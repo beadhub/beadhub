@@ -8,7 +8,7 @@ import type {
   Claim,
   EscalationSummary,
   EscalationDetail,
-  BeadIssue,
+  Task,
   InboxMessage,
   PendingConversation,
   ChatSession,
@@ -41,7 +41,7 @@ export type {
   Claim,
   EscalationSummary,
   EscalationDetail,
-  BeadIssue,
+  Task,
   InboxMessage,
   PendingConversation,
   ChatSession,
@@ -326,50 +326,32 @@ export class ApiClient implements DashboardApiClient {
     })
   }
 
-  // Beads
-  async getReadyIssues(
-    workspaceId: string,
-    filters?: { repo?: string; branch?: string }
-  ): Promise<{ issues: BeadIssue[]; count: number }> {
-    const params = new URLSearchParams({ workspace_id: workspaceId })
-    if (filters?.repo) params.set("repo", filters.repo)
-    if (filters?.branch) params.set("branch", filters.branch)
-    return this.fetch(`/v1/beads/ready?${params.toString()}`)
-  }
-
-  async listBeadIssues(filters?: {
-    repo?: string
-    branch?: string
+  // Tasks
+  async listTasks(filters?: {
     status?: string
-    type?: string
-    assignee?: string
-    createdBy?: string
-    label?: string
-    beadIds?: string[]
+    assignee_agent_id?: string
+    task_type?: string
+    priority?: string
+    labels?: string
     q?: string
     limit?: number
     cursor?: string
-  }): Promise<{ issues: BeadIssue[]; count: number; synced_at: string | null; has_more: boolean; next_cursor: string | null }> {
+  }): Promise<{ tasks: Task[]; has_more?: boolean; next_cursor?: string | null }> {
     const params = new URLSearchParams()
-    if (filters?.repo) params.set("repo", filters.repo)
-    if (filters?.branch) params.set("branch", filters.branch)
     if (filters?.status) params.set("status", filters.status)
-    if (filters?.type) params.set("type", filters.type)
-    if (filters?.assignee) params.set("assignee", filters.assignee)
-    if (filters?.createdBy) params.set("created_by", filters.createdBy)
-    if (filters?.label) params.set("label", filters.label)
-    if (filters?.beadIds && filters.beadIds.length > 0) {
-      params.set("bead_ids", filters.beadIds.join(","))
-    }
+    if (filters?.assignee_agent_id) params.set("assignee_agent_id", filters.assignee_agent_id)
+    if (filters?.task_type) params.set("task_type", filters.task_type)
+    if (filters?.priority) params.set("priority", filters.priority)
+    if (filters?.labels) params.set("labels", filters.labels)
     if (filters?.q) params.set("q", filters.q)
     if (filters?.limit) params.set("limit", String(filters.limit))
     if (filters?.cursor) params.set("cursor", filters.cursor)
     const query = params.toString()
-    return this.fetch(`/v1/beads/issues${query ? `?${query}` : ""}`)
+    return this.fetch(`/v1/tasks${query ? `?${query}` : ""}`)
   }
 
-  async getBeadIssue(beadId: string): Promise<BeadIssue> {
-    return this.fetch(`/v1/beads/issues/${beadId}`)
+  async getTask(ref: string): Promise<Task> {
+    return this.fetch(`/v1/tasks/${ref}`)
   }
 
   // Messages
