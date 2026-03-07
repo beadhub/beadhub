@@ -38,7 +38,7 @@ from beadhub.beads_sync import (
     is_valid_human_name,
     validate_issues_from_list,
 )
-from beadhub.claims import release_bead_claims, upsert_claim
+from beadhub.claims import fetch_workspace_aliases, release_bead_claims, upsert_claim
 from beadhub.routes.repos import canonicalize_git_url, extract_repo_name
 
 from ..db import DatabaseInfra, get_db_infra
@@ -610,41 +610,53 @@ async def sync(
         elif cmd in ("close", "delete") or (cmd == "update" and status and status != "in_progress"):
             # Release ALL claims on this bead — not just the syncing
             # workspace's.  A closed/deleted bead should have no claims.
-            await release_bead_claims(
+            claimant_ids = await release_bead_claims(
                 db_infra,
                 project_id=project_id,
                 bead_id=bead_id,
             )
-            title = await _get_bead_title(beads_db, project_id, bead_id)
-            await publish_event(
-                redis,
-                BeadUnclaimedEvent(
-                    workspace_id=payload.workspace_id,
-                    project_slug=await _get_project_slug(),
-                    bead_id=bead_id,
-                    alias=payload.alias,
-                    title=title,
-                ),
-            )
+            if claimant_ids:
+                title = await _get_bead_title(beads_db, project_id, bead_id)
+                claimant_aliases = await fetch_workspace_aliases(
+                    db_infra, project_id, claimant_ids
+                )
+                slug = await _get_project_slug()
+                for cid in claimant_ids:
+                    await publish_event(
+                        redis,
+                        BeadUnclaimedEvent(
+                            workspace_id=cid,
+                            project_slug=slug,
+                            bead_id=bead_id,
+                            alias=claimant_aliases.get(cid, ""),
+                            title=title,
+                        ),
+                    )
 
     if payload.deleted_ids:
         # Deleted beads should have no claims from any workspace.
         for bid in payload.deleted_ids:
-            await release_bead_claims(
+            claimant_ids = await release_bead_claims(
                 db_infra,
                 project_id=project_id,
                 bead_id=bid,
             )
-            await publish_event(
-                redis,
-                BeadUnclaimedEvent(
-                    workspace_id=payload.workspace_id,
-                    project_slug=await _get_project_slug(),
-                    bead_id=bid,
-                    alias=payload.alias,
-                    title=deleted_titles.get(bid),
-                ),
-            )
+            if claimant_ids:
+                claimant_aliases = await fetch_workspace_aliases(
+                    db_infra, project_id, claimant_ids
+                )
+                slug = await _get_project_slug()
+                for cid in claimant_ids:
+                    await publish_event(
+                        redis,
+                        BeadUnclaimedEvent(
+                            workspace_id=cid,
+                            project_slug=slug,
+                            bead_id=bid,
+                            alias=claimant_aliases.get(cid, ""),
+                            title=deleted_titles.get(bid),
+                        ),
+                    )
 
     # Record notification intents in outbox, then process them.
     notifications_sent = 0

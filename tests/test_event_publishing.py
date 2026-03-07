@@ -270,6 +270,127 @@ async def test_sync_publishes_unclaimed_events_for_deleted_ids(db_infra, redis_c
                 await pubsub.aclose()
 
 
+@pytest.mark.asyncio
+async def test_unclaimed_event_routed_to_claimant_not_actor(db_infra, redis_client_async):
+    """When workspace B closes a bead claimed by workspace A,
+    the BeadUnclaimedEvent should be published to A's channel (the claimant),
+    not B's channel (the actor)."""
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # Set up two workspaces in the same project
+            project_slug = f"evpub-{uuid.uuid4().hex[:8]}"
+            repo_origin = f"git@github.com:test/{project_slug}.git"
+
+            resp_a = await client.post(
+                "/v1/init",
+                json={
+                    "project_slug": project_slug,
+                    "project_name": project_slug,
+                    "alias": "claimer",
+                    "human_name": "Claimer Agent",
+                    "agent_type": "agent",
+                },
+            )
+            assert resp_a.status_code == 200, resp_a.text
+            key_a = resp_a.json()["api_key"]
+
+            reg_a = await client.post(
+                "/v1/workspaces/register",
+                headers={"Authorization": f"Bearer {key_a}"},
+                json={"repo_origin": repo_origin, "role": "agent"},
+            )
+            assert reg_a.status_code == 200, reg_a.text
+            ws_a = reg_a.json()["workspace_id"]
+
+            resp_b = await client.post(
+                "/v1/init",
+                json={
+                    "project_slug": project_slug,
+                    "project_name": project_slug,
+                    "alias": "closer",
+                    "human_name": "Closer Agent",
+                    "agent_type": "agent",
+                },
+            )
+            assert resp_b.status_code == 200, resp_b.text
+            key_b = resp_b.json()["api_key"]
+
+            reg_b = await client.post(
+                "/v1/workspaces/register",
+                headers={"Authorization": f"Bearer {key_b}"},
+                json={"repo_origin": repo_origin, "role": "agent"},
+            )
+            assert reg_b.status_code == 200, reg_b.text
+            ws_b = reg_b.json()["workspace_id"]
+
+            # Workspace A claims the bead
+            resp = await client.post(
+                "/v1/bdh/sync",
+                headers={"Authorization": f"Bearer {key_a}"},
+                json={
+                    "workspace_id": ws_a,
+                    "alias": "claimer",
+                    "human_name": "Claimer Agent",
+                    "repo_origin": repo_origin,
+                    "role": "agent",
+                    "sync_mode": "full",
+                    "issues_jsonl": _jsonl(
+                        {"id": "bd-route-1", "title": "Routing test", "status": "in_progress"}
+                    ),
+                    "command_line": "update bd-route-1 --status in_progress",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+
+            # Subscribe to BOTH channels before workspace B closes the bead
+            pubsub_a = await _subscribe(redis_client_async, ws_a)
+            pubsub_b = await _subscribe(redis_client_async, ws_b)
+            try:
+                # Workspace B closes the bead (releasing A's claim)
+                resp = await client.post(
+                    "/v1/bdh/sync",
+                    headers={"Authorization": f"Bearer {key_b}"},
+                    json={
+                        "workspace_id": ws_b,
+                        "alias": "closer",
+                        "human_name": "Closer Agent",
+                        "repo_origin": repo_origin,
+                        "role": "agent",
+                        "sync_mode": "incremental",
+                        "changed_issues": _jsonl(
+                            {"id": "bd-route-1", "title": "Routing test", "status": "closed"}
+                        ),
+                        "deleted_ids": [],
+                        "command_line": "close bd-route-1",
+                    },
+                )
+                assert resp.status_code == 200, resp.text
+
+                # Collect events from both channels
+                events_a = await _collect_events(pubsub_a)
+                events_b = await _collect_events(pubsub_b)
+
+                unclaimed_a = [e for e in events_a if e["type"] == "bead.unclaimed"]
+                unclaimed_b = [e for e in events_b if e["type"] == "bead.unclaimed"]
+
+                # The unclaimed event should go to workspace A (claimant), not B (actor)
+                assert len(unclaimed_a) == 1, (
+                    f"Expected 1 bead.unclaimed event on claimant channel, got {len(unclaimed_a)}"
+                )
+                assert unclaimed_a[0]["bead_id"] == "bd-route-1"
+                assert unclaimed_a[0]["workspace_id"] == ws_a
+
+                assert len(unclaimed_b) == 0, (
+                    f"Expected 0 bead.unclaimed events on actor channel, got {unclaimed_b}"
+                )
+            finally:
+                await pubsub_a.unsubscribe()
+                await pubsub_a.aclose()
+                await pubsub_b.unsubscribe()
+                await pubsub_b.aclose()
+
+
 # =============================================================================
 # Status change events
 # =============================================================================

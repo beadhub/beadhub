@@ -18,6 +18,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def fetch_workspace_aliases(
+    db_infra: "DatabaseInfra", project_id: str, workspace_ids: list[str]
+) -> dict[str, str]:
+    """Return {workspace_id: alias} for a list of workspace IDs.
+
+    Skips deleted workspaces (they return alias="" via caller fallback).
+    """
+    if not workspace_ids:
+        return {}
+    server_db = db_infra.get_manager("server")
+    rows = await server_db.fetch_all(
+        "SELECT workspace_id, alias FROM {{tables.workspaces}} "
+        "WHERE project_id = $1 AND workspace_id = ANY($2) AND deleted_at IS NULL",
+        UUID(project_id),
+        [UUID(ws_id) for ws_id in workspace_ids],
+    )
+    return {str(row["workspace_id"]): row["alias"] for row in rows}
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -244,12 +263,14 @@ async def release_bead_claims(
     project_id: str,
     bead_id: str,
     workspace_id: str | None = None,
-) -> None:
+) -> list[str]:
     """Release claims on a bead and update affected workspaces' focus.
 
     If workspace_id is provided, only that workspace's claim is removed.
     If workspace_id is None, ALL claims on the bead are removed (used when
     a bead is closed/deleted, since any workspace's claim becomes stale).
+
+    Returns the workspace_id strings of affected claimants.
     """
     server_db = db_infra.get_manager("server")
     async with server_db.transaction() as tx:
@@ -306,3 +327,5 @@ async def release_bead_claims(
                 UUID(project_id),
                 ws_id,
             )
+
+    return [str(ws_id) for ws_id in affected_ws_ids]

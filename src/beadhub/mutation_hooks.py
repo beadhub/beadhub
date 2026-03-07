@@ -13,7 +13,7 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
-from .claims import release_bead_claims, upsert_claim
+from .claims import fetch_workspace_aliases, release_bead_claims, upsert_claim
 from .events import (
     BeadClaimedEvent,
     BeadUnclaimedEvent,
@@ -210,21 +210,26 @@ async def _cascade_task_status_changed(
             ),
         )
     else:
-        await release_bead_claims(
+        claimant_ids = await release_bead_claims(
             db_infra,
             project_id=project_id,
             bead_id=task_ref,
         )
-        await publish_event(
-            redis,
-            BeadUnclaimedEvent(
-                workspace_id=actor_id,
-                project_slug=project_slug,
-                bead_id=task_ref,
-                alias=alias,
-                title=title,
-            ),
-        )
+        if claimant_ids:
+            claimant_aliases = await fetch_workspace_aliases(
+                db_infra, project_id, claimant_ids
+            )
+            for cid in claimant_ids:
+                await publish_event(
+                    redis,
+                    BeadUnclaimedEvent(
+                        workspace_id=cid,
+                        project_slug=project_slug,
+                        bead_id=task_ref,
+                        alias=claimant_aliases.get(cid, ""),
+                        title=title,
+                    ),
+                )
 
 
 async def _cascade_task_deleted(db_infra: "DatabaseInfra", context: dict) -> None:
@@ -248,9 +253,10 @@ async def _cascade_task_deleted(db_infra: "DatabaseInfra", context: dict) -> Non
     if claim is None:
         return  # No claims to release
 
+    project_id = str(claim["project_id"])
     await release_bead_claims(
         db_infra,
-        project_id=str(claim["project_id"]),
+        project_id=project_id,
         bead_id=task_ref,
     )
 
