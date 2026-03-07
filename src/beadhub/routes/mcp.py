@@ -5,11 +5,11 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from aweb.messages_service import deliver_message
+from aweb.messages_service import utc_iso as _utc_iso
 from fastapi import APIRouter, Depends, HTTPException, Request
 from redis.asyncio import Redis
 
-from aweb.messages_service import deliver_message
-from aweb.messages_service import utc_iso as _utc_iso
 from beadhub.auth import verify_workspace_access
 from beadhub.aweb_introspection import AuthIdentity, get_identity_from_auth, get_project_from_auth
 
