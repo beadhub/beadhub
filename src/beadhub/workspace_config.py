@@ -102,101 +102,38 @@ def load_workspace_config(path: Path | None = None) -> WorkspaceConfig | None:
     )
 
 
-def get_workspace_id(override: str | None = None, path: Path | None = None) -> str | None:
-    """Get workspace_id, preferring explicit override over file.
-
-    Args:
-        override: Explicit workspace_id (takes precedence).
-        path: Directory containing .beadhub file.
-
-    Returns:
-        workspace_id or None if not available.
-    """
+def _get_config_field(
+    field: str, override: str | None = None, path: Path | None = None
+) -> str | None:
+    """Return override if given, otherwise load field from .beadhub config."""
     if override:
         return override
-
     config = load_workspace_config(path)
     if config:
-        return config.workspace_id
-
+        return getattr(config, field, None)
     return None
+
+
+def get_workspace_id(override: str | None = None, path: Path | None = None) -> str | None:
+    """Get workspace_id, preferring explicit override over .beadhub file."""
+    return _get_config_field("workspace_id", override, path)
 
 
 def get_project_slug(override: str | None = None, path: Path | None = None) -> str | None:
-    """Get project_slug, preferring explicit override over file.
-
-    Args:
-        override: Explicit project_slug (takes precedence).
-        path: Directory containing .beadhub file.
-
-    Returns:
-        project_slug or None if not available.
-    """
-    if override:
-        return override
-
-    config = load_workspace_config(path)
-    if config:
-        return config.project_slug
-
-    return None
+    """Get project_slug, preferring explicit override over .beadhub file."""
+    return _get_config_field("project_slug", override, path)
 
 
 def get_human_name(override: str | None = None, path: Path | None = None) -> str | None:
-    """Get human_name, preferring explicit override over file.
-
-    Args:
-        override: Explicit human_name (takes precedence).
-        path: Directory containing .beadhub file.
-
-    Returns:
-        human_name or None if not available.
-    """
-    if override:
-        return override
-
-    config = load_workspace_config(path)
-    if config:
-        return config.human_name
-
-    return None
+    """Get human_name, preferring explicit override over .beadhub file."""
+    return _get_config_field("human_name", override, path)
 
 
 def get_alias(override: str | None = None, path: Path | None = None) -> str | None:
-    """Get alias, preferring explicit override over file.
-
-    Args:
-        override: Explicit alias (takes precedence).
-        path: Directory containing .beadhub file.
-
-    Returns:
-        alias or None if not available.
-    """
-    if override:
-        return override
-
-    config = load_workspace_config(path)
-    if config:
-        return config.alias
-
-    return None
+    """Get alias, preferring explicit override over .beadhub file."""
+    return _get_config_field("alias", override, path)
 
 
 def get_repo_origin(override: str | None = None, path: Path | None = None) -> str | None:
-    """Get repo_origin, preferring explicit override over file.
-
-    Args:
-        override: Explicit repo_origin (takes precedence).
-        path: Directory containing .beadhub file.
-
-    Returns:
-        repo_origin or None if not available.
-    """
-    if override:
-        return override
-
-    config = load_workspace_config(path)
-    if config:
-        return config.repo_origin
-
-    return None
+    """Get repo_origin, preferring explicit override over .beadhub file."""
+    return _get_config_field("repo_origin", override, path)
