@@ -14,6 +14,8 @@ import uuid
 from typing import TYPE_CHECKING, List
 from uuid import UUID
 
+import asyncpg.exceptions
+
 from aweb.messages_service import deliver_message
 
 if TYPE_CHECKING:
@@ -23,6 +25,48 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MAX_RETRY_ATTEMPTS = 3
+SYSTEM_SENDER_ALIAS = "system"
+SYSTEM_SENDER_HUMAN_NAME = "BeadHub Notifications"
+
+
+async def ensure_system_sender(db_infra: "DatabaseInfra", project_id: str) -> tuple[str, str]:
+    """Ensure a per-project system agent exists and return (agent_id, alias).
+
+    Uses a deterministic UUID derived from the project_id so the same
+    system agent is reused across calls without extra lookups.
+    """
+    agent_id = uuid.uuid5(uuid.NAMESPACE_URL, f"beadhub:system:{project_id}")
+    aweb_db = db_infra.get_manager("aweb")
+
+    # Fast path: agent already exists (cheap PK lookup).
+    row = await aweb_db.fetch_one(
+        "SELECT agent_id FROM {{tables.agents}} WHERE agent_id = $1 AND deleted_at IS NULL",
+        agent_id,
+    )
+    if row:
+        return str(agent_id), SYSTEM_SENDER_ALIAS
+
+    try:
+        await aweb_db.execute(
+            """
+            INSERT INTO {{tables.agents}}
+                (agent_id, project_id, alias, human_name, agent_type,
+                 lifetime, status, custody)
+            VALUES ($1, $2, $3, $4, 'system', 'persistent', 'active', 'custodial')
+            ON CONFLICT (agent_id) DO NOTHING
+            """,
+            agent_id,
+            UUID(project_id),
+            SYSTEM_SENDER_ALIAS,
+            SYSTEM_SENDER_HUMAN_NAME,
+        )
+    except asyncpg.exceptions.UniqueViolationError:
+        raise RuntimeError(
+            f"Cannot create system notification sender for project {project_id}: "
+            f"alias '{SYSTEM_SENDER_ALIAS}' is already taken by another agent. "
+            f"Rename the conflicting agent to restore notifications."
+        )
+    return str(agent_id), SYSTEM_SENDER_ALIAS
 
 
 async def record_notification_intents(
@@ -98,24 +142,16 @@ async def process_notification_outbox(
     project_id: str,
     db_infra: "DatabaseInfra",
     *,
-    sender_agent_id: str,
-    sender_alias: str,
     limit: int = 100,
 ) -> tuple[int, int]:
     """Process pending notifications from the outbox.
 
-    Fetches pending/failed entries, attempts to send each notification,
-    and updates the outbox entry with the result.
-
-    Args:
-        project_id: Project UUID to process notifications for
-        db_infra: Database infrastructure
-        redis: Redis client for message events
-        limit: Maximum number of entries to process in one batch
+    Uses a per-project system sender so notifications are never self-sent.
 
     Returns:
         Tuple of (sent_count, failed_count)
     """
+    sender_agent_id, sender_alias = await ensure_system_sender(db_infra, project_id)
     server_db = db_infra.get_manager("server")
     sent_count = 0
     failed_count = 0

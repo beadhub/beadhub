@@ -80,13 +80,8 @@ async def _process_status_notifications(
         return 0, 0
 
     await record_notification_intents(result.status_changes, project_id, db_infra)
+    sent, failed = await process_notification_outbox(project_id, db_infra)
     identity = await resolve_aweb_identity(request, db_infra)
-    sent, failed = await process_notification_outbox(
-        project_id,
-        db_infra,
-        sender_agent_id=identity.agent_id,
-        sender_alias=identity.alias,
-    )
     await publish_bead_status_events(
         redis,
         workspace_id=identity.agent_id,

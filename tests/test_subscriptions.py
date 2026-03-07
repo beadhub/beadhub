@@ -455,6 +455,151 @@ async def test_notification_on_status_change(db_infra, async_redis):
 
 
 @pytest.mark.asyncio
+async def test_notification_sender_is_system(db_infra, async_redis):
+    """Notification messages come from a system sender, not the triggering agent.
+
+    When agent A triggers a bead status change and agent B is subscribed,
+    the notification should arrive from a system identity — not from agent A.
+    This also prevents self-sent messages when the triggering agent is subscribed.
+    """
+    app = create_app(db_infra=db_infra, redis=async_redis, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            slug = "test-sys-sender"
+            # Two agents in the same project
+            triggerer = await _init_project_auth(client, project_slug=slug, alias="triggerer")
+            watcher = await _init_project_auth(client, project_slug=slug, alias="watcher")
+
+            # Create the bead
+            await client.post(
+                "/v1/beads/upload",
+                json={
+                    "repo": "sys-repo",
+                    "issues": [
+                        {"id": "sys-bead", "title": "Test", "status": "open", "priority": 1}
+                    ],
+                },
+                headers=_auth_headers(triggerer["api_key"]),
+            )
+
+            # Watcher subscribes
+            await client.post(
+                "/v1/subscriptions",
+                json={
+                    "workspace_id": watcher["workspace_id"],
+                    "bead_id": "sys-bead",
+                    "repo": "sys-repo",
+                    "event_types": ["status_change"],
+                },
+                headers=_auth_headers(watcher["api_key"]),
+            )
+
+            # Triggerer changes status
+            resp = await client.post(
+                "/v1/beads/upload",
+                json={
+                    "repo": "sys-repo",
+                    "issues": [
+                        {"id": "sys-bead", "title": "Test", "status": "closed", "priority": 1}
+                    ],
+                },
+                headers=_auth_headers(triggerer["api_key"]),
+            )
+            assert resp.status_code == 200
+            assert resp.json()["notifications_sent"] == 1
+
+            # Check watcher's inbox — sender should be system, not triggerer
+            inbox_resp = await client.get(
+                "/v1/messages/inbox",
+                params={"agent_id": watcher["workspace_id"]},
+                headers=_auth_headers(watcher["api_key"]),
+            )
+            assert inbox_resp.status_code == 200
+            messages = inbox_resp.json()["messages"]
+            assert len(messages) == 1
+            msg = messages[0]
+            assert (
+                msg["from_alias"] == "system"
+            ), f"Expected sender alias 'system', got '{msg['from_alias']}'"
+            # Sender should NOT be the triggering agent
+            assert msg["from_agent_id"] != triggerer["workspace_id"]
+
+
+@pytest.mark.asyncio
+async def test_notification_self_subscribed_not_self_sent(db_infra, async_redis):
+    """When the triggering agent is also subscribed, the notification still arrives
+    but from the system sender — not as a self-sent message.
+    """
+    app = create_app(db_infra=db_infra, redis=async_redis, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            init = await _init_project_auth(
+                client, project_slug="test-self-sub", alias="self-watcher"
+            )
+
+            # Create the bead
+            await client.post(
+                "/v1/beads/upload",
+                json={
+                    "repo": "self-repo",
+                    "issues": [
+                        {"id": "self-bead", "title": "Test", "status": "open", "priority": 1}
+                    ],
+                },
+                headers=_auth_headers(init["api_key"]),
+            )
+
+            # Subscribe to own bead
+            await client.post(
+                "/v1/subscriptions",
+                json={
+                    "workspace_id": init["workspace_id"],
+                    "bead_id": "self-bead",
+                    "repo": "self-repo",
+                    "event_types": ["status_change"],
+                },
+                headers=_auth_headers(init["api_key"]),
+            )
+
+            # Trigger status change (same agent)
+            resp = await client.post(
+                "/v1/beads/upload",
+                json={
+                    "repo": "self-repo",
+                    "issues": [
+                        {"id": "self-bead", "title": "Test", "status": "closed", "priority": 1}
+                    ],
+                },
+                headers=_auth_headers(init["api_key"]),
+            )
+            assert resp.status_code == 200
+            assert resp.json()["notifications_sent"] == 1
+
+            # Inbox should have the notification — from system, not self
+            inbox_resp = await client.get(
+                "/v1/messages/inbox",
+                params={"agent_id": init["workspace_id"]},
+                headers=_auth_headers(init["api_key"]),
+            )
+            assert inbox_resp.status_code == 200
+            messages = inbox_resp.json()["messages"]
+            assert len(messages) == 1
+            msg = messages[0]
+            assert (
+                msg["from_alias"] == "system"
+            ), f"Expected sender alias 'system', got '{msg['from_alias']}'"
+            assert (
+                msg["from_agent_id"] != init["workspace_id"]
+            ), "Notification should not be self-sent"
+
+
+@pytest.mark.asyncio
 async def test_no_notification_for_new_beads(db_infra, async_redis):
     """New beads don't trigger notifications (only status changes do)."""
     app = create_app(db_infra=db_infra, redis=async_redis, serve_frontend=False)

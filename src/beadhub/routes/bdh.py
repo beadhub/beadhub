@@ -659,13 +659,10 @@ async def sync(
     notifications_failed = 0
     if result is not None and result.status_changes:
         await record_notification_intents(result.status_changes, project_id, db_infra)
-        sender = await resolve_aweb_identity(request, db_infra)
         notifications_sent, notifications_failed = await process_notification_outbox(
-            project_id,
-            db_infra,
-            sender_agent_id=sender.agent_id,
-            sender_alias=sender.alias,
+            project_id, db_infra
         )
+        sender = await resolve_aweb_identity(request, db_infra)
         await publish_bead_status_events(
             redis,
             workspace_id=payload.workspace_id,
