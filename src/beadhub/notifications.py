@@ -155,8 +155,8 @@ async def process_notification_outbox(
     sent_count = 0
     failed_count = 0
 
-    # Fetch pending entries (including failed entries under retry limit)
-    rows = await server_db.fetch_all(
+    # Fetch candidate entries (no row lock — just identifies work to do).
+    candidates = await server_db.fetch_all(
         """
         SELECT id, payload, recipient_workspace_id, recipient_alias, attempts
         FROM {{tables.notification_outbox}}
@@ -165,113 +165,127 @@ async def process_notification_outbox(
           AND attempts < $2
         ORDER BY created_at ASC
         LIMIT $3
-        FOR UPDATE SKIP LOCKED
         """,
         project_id,
         MAX_RETRY_ATTEMPTS,
         limit,
     )
 
-    for row in rows:
-        outbox_id = row["id"]
-        payload = row["payload"]
-        recipient_workspace_id = str(row["recipient_workspace_id"])
-        attempts = row["attempts"] + 1
+    for candidate in candidates:
+        outbox_id = candidate["id"]
 
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-
-        # Mark as processing
-        await server_db.execute(
-            """
-            UPDATE {{tables.notification_outbox}}
-            SET status = 'processing', attempts = $2
-            WHERE id = $1
-            """,
-            outbox_id,
-            attempts,
-        )
-
-        try:
-            # Skip sending to deleted/missing workspaces (subscriptions may outlive workspaces).
-            recipient_row = await server_db.fetch_one(
+        # Per-entry transaction: claim with FOR UPDATE SKIP LOCKED, process,
+        # and update status atomically. Concurrent processors skip locked rows.
+        async with server_db.transaction() as tx:
+            locked = await tx.fetch_one(
                 """
-                SELECT deleted_at
-                FROM {{tables.workspaces}}
-                WHERE workspace_id = $1 AND project_id = $2
-                """,
-                UUID(recipient_workspace_id),
-                UUID(project_id),
-            )
-            if not recipient_row or recipient_row.get("deleted_at") is not None:
-                raise RuntimeError("Recipient workspace not found or deleted")
-
-            # Build notification message
-            bead_id = payload.get("bead_id", "unknown")
-            old_status = payload.get("old_status", "unknown")
-            new_status = payload.get("new_status", "unknown")
-            title = payload.get("title", "")
-            repo = payload.get("repo", "")
-            branch = payload.get("branch", "")
-
-            subject = f"Bead status changed: {bead_id}"
-            body = f"**{bead_id}** status changed from `{old_status}` to `{new_status}`\n\n"
-            if title:
-                body += f"Title: {title}\n"
-            if repo:
-                body += f"Repo: {repo}\n"
-            if branch:
-                body += f"Branch: {branch}\n"
-
-            # Generate deterministic thread ID for this bead
-            thread_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"bead:{bead_id}")
-
-            message_id, _created_at = await deliver_message(
-                db_infra,
-                project_id=project_id,
-                from_agent_id=sender_agent_id,
-                from_alias=sender_alias,
-                to_agent_id=recipient_workspace_id,
-                subject=subject,
-                body=body,
-                priority="normal",
-                thread_id=str(thread_uuid),
-            )
-
-            # Mark as completed
-            await server_db.execute(
-                """
-                UPDATE {{tables.notification_outbox}}
-                SET status = 'completed',
-                    processed_at = NOW(),
-                    message_id = $2,
-                    last_error = NULL
-                WHERE id = $1
+                SELECT id, payload, recipient_workspace_id, attempts
+                FROM {{tables.notification_outbox}}
+                WHERE id = $1 AND status IN ('pending', 'failed')
+                FOR UPDATE SKIP LOCKED
                 """,
                 outbox_id,
-                message_id,
             )
-            sent_count += 1
+            if locked is None:
+                continue  # Already claimed by another processor
 
-        except Exception as e:
-            logger.exception(
-                "Failed to send notification for outbox entry %s (attempt %d)",
+            payload = locked["payload"]
+            recipient_workspace_id = str(locked["recipient_workspace_id"])
+            attempts = locked["attempts"] + 1
+
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+
+            # Mark as processing
+            await tx.execute(
+                """
+                UPDATE {{tables.notification_outbox}}
+                SET status = 'processing', attempts = $2
+                WHERE id = $1
+                """,
                 outbox_id,
                 attempts,
             )
-            # Mark as failed - stays retriable until MAX_RETRY_ATTEMPTS exhausted
-            error_msg = str(e)[:500]  # Truncate long errors
-            await server_db.execute(
-                """
-                UPDATE {{tables.notification_outbox}}
-                SET status = 'failed',
-                    last_error = $2
-                WHERE id = $1
-                """,
-                outbox_id,
-                error_msg,
-            )
-            failed_count += 1
+
+            try:
+                # Skip sending to deleted/missing workspaces.
+                recipient_row = await tx.fetch_one(
+                    """
+                    SELECT deleted_at
+                    FROM {{tables.workspaces}}
+                    WHERE workspace_id = $1 AND project_id = $2
+                    """,
+                    UUID(recipient_workspace_id),
+                    UUID(project_id),
+                )
+                if not recipient_row or recipient_row.get("deleted_at") is not None:
+                    raise RuntimeError("Recipient workspace not found or deleted")
+
+                # Build notification message
+                bead_id = payload.get("bead_id", "unknown")
+                old_status = payload.get("old_status", "unknown")
+                new_status = payload.get("new_status", "unknown")
+                title = payload.get("title", "")
+                repo = payload.get("repo", "")
+                branch = payload.get("branch", "")
+
+                subject = f"Bead status changed: {bead_id}"
+                body = f"**{bead_id}** status changed" f" from `{old_status}` to `{new_status}`\n\n"
+                if title:
+                    body += f"Title: {title}\n"
+                if repo:
+                    body += f"Repo: {repo}\n"
+                if branch:
+                    body += f"Branch: {branch}\n"
+
+                # Generate deterministic thread ID for this bead
+                thread_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"bead:{bead_id}")
+
+                message_id, _created_at = await deliver_message(
+                    db_infra,
+                    project_id=project_id,
+                    from_agent_id=sender_agent_id,
+                    from_alias=sender_alias,
+                    to_agent_id=recipient_workspace_id,
+                    subject=subject,
+                    body=body,
+                    priority="normal",
+                    thread_id=str(thread_uuid),
+                )
+
+                # Mark as completed (within the same transaction)
+                await tx.execute(
+                    """
+                    UPDATE {{tables.notification_outbox}}
+                    SET status = 'completed',
+                        processed_at = NOW(),
+                        message_id = $2,
+                        last_error = NULL
+                    WHERE id = $1
+                    """,
+                    outbox_id,
+                    message_id,
+                )
+                sent_count += 1
+
+            except Exception as e:
+                logger.exception(
+                    "Failed to send notification for outbox entry %s (attempt %d)",
+                    outbox_id,
+                    attempts,
+                )
+                error_msg = str(e)[:500]
+                await tx.execute(
+                    """
+                    UPDATE {{tables.notification_outbox}}
+                    SET status = 'failed',
+                        last_error = $2
+                    WHERE id = $1
+                    """,
+                    outbox_id,
+                    error_msg,
+                )
+                failed_count += 1
 
     return sent_count, failed_count
 
