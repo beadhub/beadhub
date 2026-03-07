@@ -70,7 +70,6 @@ def _beads_issue_detail_to_task(row: dict[str, Any]) -> dict[str, Any]:
     task["description"] = row.get("description") or ""
     task["notes"] = ""
     task["project_id"] = str(row["project_id"]) if row.get("project_id") else None
-    task["parent_task_id"] = _extract_parent_ref(row.get("parent_id"))
     task["closed_by_agent_id"] = None
     task["closed_at"] = None
     task["blocked_by"] = []
