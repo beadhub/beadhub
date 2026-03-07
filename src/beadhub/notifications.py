@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 import asyncpg.exceptions
-
 from aweb.messages_service import deliver_message
 
 if TYPE_CHECKING:
