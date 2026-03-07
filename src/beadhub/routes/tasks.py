@@ -16,9 +16,9 @@ from uuid import UUID
 from aweb.auth import get_project_from_auth
 from aweb.service_errors import NotFoundError
 from aweb.tasks_service import (
+    format_task_ref,
     get_task,
     list_blocked_tasks,
-    list_ready_tasks,
     list_tasks,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -76,6 +76,78 @@ def _beads_issue_detail_to_task(row: dict[str, Any]) -> dict[str, Any]:
     task["blocked_by"] = []
     task["blocks"] = []
     return task
+
+
+async def _get_project_slug(db_infra: DatabaseInfra, project_id: str) -> str:
+    """Resolve the aweb project slug for task ref formatting."""
+    aweb_db = db_infra.get_manager("aweb")
+    row = await aweb_db.fetch_one(
+        "SELECT slug FROM {{tables.projects}} WHERE project_id = $1 AND deleted_at IS NULL",
+        UUID(project_id),
+    )
+    if not row:
+        raise NotFoundError("Project not found")
+    return row["slug"]
+
+
+def _native_task_row_to_task(row: dict[str, Any], *, project_slug: str) -> dict[str, Any]:
+    """Map an aweb tasks row to the API task response shape."""
+    return {
+        "task_id": str(row["task_id"]),
+        "task_ref": format_task_ref(project_slug, row["task_number"]),
+        "task_number": row["task_number"],
+        "title": row["title"],
+        "status": row["status"],
+        "priority": row["priority"],
+        "task_type": row["task_type"],
+        "assignee_agent_id": str(row["assignee_agent_id"]) if row["assignee_agent_id"] else None,
+        "created_by_agent_id": (
+            str(row["created_by_agent_id"]) if row["created_by_agent_id"] else None
+        ),
+        "parent_task_id": str(row["parent_task_id"]) if row["parent_task_id"] else None,
+        "labels": list(row["labels"]) if row["labels"] else [],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+async def _list_ready_tasks(
+    db_infra: DatabaseInfra, *, project_id: str, exclude_assigned: bool = False
+) -> list[dict[str, Any]]:
+    """List open, unblocked native tasks with optional SQL-level assignee exclusion."""
+    project_slug = await _get_project_slug(db_infra, project_id)
+    aweb_db = db_infra.get_manager("aweb")
+
+    conditions = [
+        "t.project_id = $1",
+        "t.status = 'open'",
+        "t.deleted_at IS NULL",
+        """NOT EXISTS (
+              SELECT 1 FROM {{tables.task_dependencies}} d
+              JOIN {{tables.tasks}} blocker ON blocker.task_id = d.depends_on_task_id
+              WHERE d.task_id = t.task_id
+                AND blocker.status != 'closed'
+                AND blocker.deleted_at IS NULL
+          )""",
+    ]
+
+    if exclude_assigned:
+        conditions.append("t.assignee_agent_id IS NULL")
+
+    where = "\n          AND ".join(conditions)
+    rows = await aweb_db.fetch_all(
+        f"""
+        SELECT t.task_id, t.task_number, t.title, t.status, t.priority, t.task_type,
+               t.assignee_agent_id, t.created_by_agent_id, t.parent_task_id, t.labels,
+               t.created_at, t.updated_at
+        FROM {{{{tables.tasks}}}} t
+        WHERE {where}
+        ORDER BY t.priority ASC, t.task_number ASC
+        """,
+        UUID(project_id),
+    )
+
+    return [_native_task_row_to_task(dict(row), project_slug=project_slug) for row in rows]
 
 
 async def _fetch_beads_issues(
@@ -205,10 +277,14 @@ async def list_tasks_unified(
 
 @router.get("/ready")
 async def list_ready_tasks_route(
-    request: Request, db_infra: DatabaseInfra = Depends(get_db_infra)
+    request: Request,
+    exclude_assigned: bool = Query(False),
+    db_infra: DatabaseInfra = Depends(get_db_infra),
 ) -> dict[str, Any]:
     project_id = await get_project_from_auth(request, db_infra, manager_name="aweb")
-    tasks = await list_ready_tasks(db_infra, project_id=project_id)
+    tasks = await _list_ready_tasks(
+        db_infra, project_id=project_id, exclude_assigned=exclude_assigned
+    )
     return {"tasks": tasks}
 
 

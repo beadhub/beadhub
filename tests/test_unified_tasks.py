@@ -264,3 +264,60 @@ async def test_tasks_list_merges_native_and_beads(db_infra):
                 assert "bd-99" in refs, f"Expected beads issue bd-99 in {refs}"
     finally:
         await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_ready_tasks_can_exclude_assigned_native_tasks(db_infra):
+    """GET /v1/tasks/ready can filter out assigned open tasks in SQL."""
+    redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)
+    try:
+        try:
+            await redis.ping()
+        except Exception:
+            pytest.skip("Redis is not available")
+        await redis.flushdb()
+        app = create_app(db_infra=db_infra, redis=redis, serve_frontend=False)
+        async with LifespanManager(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                setup = await _setup_project(client)
+                headers = {"Authorization": f"Bearer {setup['api_key']}"}
+
+                assigned_resp = await client.post(
+                    "/v1/tasks",
+                    headers=headers,
+                    json={"title": "Assigned ready task", "task_type": "task", "priority": 1},
+                )
+                assert assigned_resp.status_code == 200, assigned_resp.text
+                assigned_ref = assigned_resp.json()["task_ref"]
+
+                unassigned_resp = await client.post(
+                    "/v1/tasks",
+                    headers=headers,
+                    json={"title": "Unassigned ready task", "task_type": "task", "priority": 2},
+                )
+                assert unassigned_resp.status_code == 200, unassigned_resp.text
+                unassigned_ref = unassigned_resp.json()["task_ref"]
+
+                patch_resp = await client.patch(
+                    f"/v1/tasks/{assigned_ref}",
+                    headers=headers,
+                    json={"assignee_agent_id": setup["workspace_id"]},
+                )
+                assert patch_resp.status_code == 200, patch_resp.text
+                assert patch_resp.json()["assignee_agent_id"] == setup["workspace_id"]
+
+                resp = await client.get("/v1/tasks/ready", headers=headers)
+                assert resp.status_code == 200, resp.text
+                all_ready_refs = {task["task_ref"] for task in resp.json()["tasks"]}
+                assert assigned_ref in all_ready_refs
+                assert unassigned_ref in all_ready_refs
+
+                resp = await client.get("/v1/tasks/ready?exclude_assigned=true", headers=headers)
+                assert resp.status_code == 200, resp.text
+                filtered_ready_refs = {task["task_ref"] for task in resp.json()["tasks"]}
+                assert assigned_ref not in filtered_ready_refs
+                assert unassigned_ref in filtered_ready_refs
+    finally:
+        await redis.aclose()
