@@ -208,8 +208,8 @@ async def test_task_closed_releases_claim(db_infra, redis_client_async):
 
 
 @pytest.mark.asyncio
-async def test_task_deleted_releases_claim(db_infra, redis_client_async):
-    """Deleting a task releases the bead claim."""
+async def test_task_deleted_releases_claim_and_publishes_event(db_infra, redis_client_async):
+    """Deleting a task releases the bead claim and publishes BeadUnclaimedEvent."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
     async with LifespanManager(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -231,20 +231,34 @@ async def test_task_deleted_releases_claim(db_infra, redis_client_async):
             )
             assert len(claims.json()["claims"]) == 1
 
-            # Delete the task
-            resp = await client.delete(
-                f"/v1/tasks/{setup['task_ref']}",
-                headers={"Authorization": f"Bearer {setup['api_key']}"},
-            )
-            assert resp.status_code == 200, resp.text
-            await asyncio.sleep(0.3)
+            # Subscribe to events, then delete the task
+            pubsub = await _subscribe(redis_client_async, setup["workspace_id"])
+            try:
+                resp = await client.delete(
+                    f"/v1/tasks/{setup['task_ref']}",
+                    headers={"Authorization": f"Bearer {setup['api_key']}"},
+                )
+                assert resp.status_code == 200, resp.text
+                await asyncio.sleep(0.3)
 
-            # Claim should be gone
-            claims = await client.get(
-                "/v1/claims",
-                headers={"Authorization": f"Bearer {setup['api_key']}"},
-            )
-            assert claims.json()["claims"] == [], "Deleting a task should release all claims"
+                # Claim should be gone
+                claims = await client.get(
+                    "/v1/claims",
+                    headers={"Authorization": f"Bearer {setup['api_key']}"},
+                )
+                assert claims.json()["claims"] == [], "Deleting a task should release all claims"
+
+                # BeadUnclaimedEvent should have been published
+                events = await _collect_events(pubsub)
+                unclaimed = [e for e in events if e["type"] == "bead.unclaimed"]
+                assert (
+                    len(unclaimed) == 1
+                ), f"Expected 1 bead.unclaimed event on task deletion, got {events}"
+                assert unclaimed[0]["bead_id"] == setup["task_ref"]
+                assert unclaimed[0]["workspace_id"] == setup["workspace_id"]
+            finally:
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
 
 
 @pytest.mark.asyncio

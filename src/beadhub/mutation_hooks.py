@@ -57,7 +57,7 @@ def create_mutation_handler(redis: Redis, db_infra: DatabaseInfra):
 
         if event_type == "task.deleted":
             try:
-                await _cascade_task_deleted(db_infra, context)
+                await _cascade_task_deleted(redis, db_infra, context)
             except Exception:
                 logger.error("Failed to cascade task.deleted", exc_info=True)
 
@@ -230,8 +230,8 @@ async def _cascade_task_status_changed(
                 )
 
 
-async def _cascade_task_deleted(db_infra: "DatabaseInfra", context: dict) -> None:
-    """Release all claims on a deleted task.
+async def _cascade_task_deleted(redis: Redis, db_infra: "DatabaseInfra", context: dict) -> None:
+    """Release all claims on a deleted task and publish unclaim events.
 
     The task.deleted hook provides only {task_id, task_ref}, so we look up
     the project from existing claims on that bead_id.
@@ -252,11 +252,25 @@ async def _cascade_task_deleted(db_infra: "DatabaseInfra", context: dict) -> Non
         return  # No claims to release
 
     project_id = str(claim["project_id"])
-    await release_bead_claims(
+    claimant_ids = await release_bead_claims(
         db_infra,
         project_id=project_id,
         bead_id=task_ref,
     )
+    if claimant_ids:
+        claimant_aliases = await fetch_workspace_aliases(db_infra, project_id, claimant_ids)
+        for cid in claimant_ids:
+            project_slug = await get_workspace_project_slug(redis, cid)
+            await publish_event(
+                redis,
+                BeadUnclaimedEvent(
+                    workspace_id=cid,
+                    project_slug=project_slug,
+                    bead_id=task_ref,
+                    alias=claimant_aliases.get(cid, ""),
+                    title=context.get("title"),
+                ),
+            )
 
 
 async def _alias_for(redis: Redis, workspace_id: str) -> str:
