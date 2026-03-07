@@ -348,13 +348,13 @@ async def test_send_message_to_multiple_recipients(db_infra, async_redis, init_w
                 repo_origin="git@github.com:test/mcp-multi-sender.git",
                 alias="sender",
             )
-            r1 = await init_workspace(
+            await init_workspace(
                 client,
                 project_slug="mcp-multi",
                 repo_origin="git@github.com:test/mcp-multi-r1.git",
                 alias="recip-one",
             )
-            r2 = await init_workspace(
+            await init_workspace(
                 client,
                 project_slug="mcp-multi",
                 repo_origin="git@github.com:test/mcp-multi-r2.git",
