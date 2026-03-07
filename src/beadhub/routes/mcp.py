@@ -614,7 +614,6 @@ async def _tool_unsubscribe(
     return response.model_dump()
 
 
-
 async def _tool_escalate(
     request: Request,
     redis: Redis,
