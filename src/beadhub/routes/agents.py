@@ -166,6 +166,7 @@ async def suggest_alias_prefix(
         SELECT alias
         FROM {{tables.agents}}
         WHERE project_id = $1 AND deleted_at IS NULL
+          AND agent_type != 'system'
         ORDER BY alias
         """,
         UUID(project_id),
