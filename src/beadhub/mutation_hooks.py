@@ -87,7 +87,7 @@ async def _cascade_agent_deregistered(
     """Cascade agent deregistration to workspace cleanup.
 
     workspace_id = agent_id (v1 mapping). Soft-deletes the workspace,
-    releases bead claims, and clears presence from Redis.
+    releases bead claims, publishes unclaim events, and clears presence.
 
     Note: agent.retired is intentionally NOT cascaded here. Retired agents
     designate a successor and their workspace data may be needed for handoff.
@@ -116,7 +116,9 @@ async def _cascade_agent_deregistered(
     if workspace is None:
         return
 
-    # Soft-delete the workspace and release bead claims atomically
+    alias = workspace["alias"]
+
+    # Soft-delete the workspace and capture claimed beads before releasing
     async with server_db.transaction() as tx:
         await tx.execute(
             """
@@ -126,21 +128,36 @@ async def _cascade_agent_deregistered(
             """,
             agent_uuid,
         )
-        await tx.execute(
+        claimed_rows = await tx.fetch_all(
             """
             DELETE FROM {{tables.bead_claims}}
             WHERE workspace_id = $1
+            RETURNING bead_id
             """,
             agent_uuid,
+        )
+
+    # Publish BeadUnclaimedEvent for each released claim
+    project_slug = await get_workspace_project_slug(redis, agent_id)
+    for row in claimed_rows:
+        await publish_event(
+            redis,
+            BeadUnclaimedEvent(
+                workspace_id=agent_id,
+                project_slug=project_slug,
+                bead_id=row["bead_id"],
+                alias=alias,
+            ),
         )
 
     # Clear presence from Redis (best-effort, not transactional with SQL)
     await clear_workspace_presence(redis, [agent_id])
 
     logger.info(
-        "Cascaded agent deregistration to workspace %s (alias=%s)",
+        "Cascaded agent deregistration to workspace %s (alias=%s, claims_released=%d)",
         agent_id,
-        workspace["alias"],
+        alias,
+        len(claimed_rows),
     )
 
 

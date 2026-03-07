@@ -262,6 +262,92 @@ async def test_task_deleted_releases_claim_and_publishes_event(db_infra, redis_c
 
 
 @pytest.mark.asyncio
+async def test_agent_deregistered_publishes_unclaim_event(db_infra, redis_client_async):
+    """Deregistering an agent publishes BeadUnclaimedEvent for its claimed beads."""
+    app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
+    async with LifespanManager(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            project_slug = f"tclaim-{uuid.uuid4().hex[:8]}"
+            repo_origin = f"git@github.com:test/{project_slug}.git"
+
+            # Create an ephemeral agent (only ephemeral can be deregistered)
+            resp = await client.post(
+                "/v1/init",
+                json={
+                    "project_slug": project_slug,
+                    "project_name": project_slug,
+                    "alias": f"eph-{uuid.uuid4().hex[:4]}",
+                    "human_name": "Ephemeral Agent",
+                    "agent_type": "agent",
+                    "lifetime": "ephemeral",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            api_key = resp.json()["api_key"]
+
+            reg = await client.post(
+                "/v1/workspaces/register",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"repo_origin": repo_origin, "role": "developer"},
+            )
+            assert reg.status_code == 200, reg.text
+            workspace_id = reg.json()["workspace_id"]
+            alias = reg.json()["alias"]
+
+            # Heartbeat to populate presence
+            await client.post(
+                "/v1/workspaces/heartbeat",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"workspace_id": workspace_id, "alias": alias, "repo_origin": repo_origin},
+            )
+
+            # Create a task and claim it
+            task_resp = await client.post(
+                "/v1/tasks",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"title": "Claimed task", "task_type": "task", "priority": 1},
+            )
+            assert task_resp.status_code == 200, task_resp.text
+            task_ref = task_resp.json()["task_ref"]
+
+            resp = await client.patch(
+                f"/v1/tasks/{task_ref}",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"status": "in_progress"},
+            )
+            assert resp.status_code == 200, resp.text
+            await asyncio.sleep(0.3)
+
+            # Verify claim exists
+            claims = await client.get(
+                "/v1/claims",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            assert len(claims.json()["claims"]) == 1
+
+            # Subscribe, then deregister
+            pubsub = await _subscribe(redis_client_async, workspace_id)
+            try:
+                resp = await client.delete(
+                    "/v1/agents/me",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                assert resp.status_code == 200, resp.text
+                await asyncio.sleep(0.3)
+
+                events = await _collect_events(pubsub)
+                unclaimed = [e for e in events if e["type"] == "bead.unclaimed"]
+                assert (
+                    len(unclaimed) == 1
+                ), f"Expected 1 bead.unclaimed event on deregistration, got {events}"
+                assert unclaimed[0]["bead_id"] == task_ref
+                assert unclaimed[0]["workspace_id"] == workspace_id
+            finally:
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
+
+
+@pytest.mark.asyncio
 async def test_task_claim_resolves_apex_from_parent(db_infra, redis_client_async):
     """Claiming a child task sets apex to the root parent task."""
     app = create_app(db_infra=db_infra, redis=redis_client_async, serve_frontend=False)
