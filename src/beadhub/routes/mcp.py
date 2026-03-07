@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from redis.asyncio import Redis
 
 from beadhub.auth import verify_workspace_access
+from beadhub.aweb_introspection import get_project_from_auth
 
 from ..db import DatabaseInfra, get_db_infra
 from ..presence import (
@@ -52,6 +53,155 @@ def _rpc_result(id_value: Any, payload: Any) -> dict[str, Any]:
     }
 
 
+TOOL_CATALOG: list[dict[str, Any]] = [
+    {
+        "name": "register_agent",
+        "description": "Register agent presence for a workspace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+                "alias": {"type": "string", "description": "Agent alias"},
+                "human_name": {"type": "string", "description": "Human operator name"},
+                "program": {"type": "string", "description": "Agent program name"},
+                "model": {"type": "string", "description": "Model identifier"},
+                "role": {"type": "string", "description": "Agent role"},
+            },
+            "required": ["workspace_id", "alias"],
+        },
+    },
+    {
+        "name": "list_agents",
+        "description": "List all agents with active presence in the project.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+            },
+            "required": ["workspace_id"],
+        },
+    },
+    {
+        "name": "status",
+        "description": "Get workspace status including agents, claims, and conflicts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+            },
+            "required": ["workspace_id"],
+        },
+    },
+    {
+        "name": "get_ready_issues",
+        "description": "List beads issues that are ready to work on (open, no blockers).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+                "repo": {"type": "string", "description": "Filter by repo canonical origin"},
+                "branch": {"type": "string", "description": "Filter by branch"},
+                "limit": {"type": "integer", "description": "Max results (default 10)"},
+            },
+            "required": ["workspace_id"],
+        },
+    },
+    {
+        "name": "get_issue",
+        "description": "Get details of a specific beads issue by bead_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bead_id": {"type": "string", "description": "Bead issue ID"},
+            },
+            "required": ["bead_id"],
+        },
+    },
+    {
+        "name": "subscribe_to_bead",
+        "description": "Subscribe to status change notifications for a bead.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+                "bead_id": {"type": "string", "description": "Bead issue ID"},
+                "repo": {"type": "string", "description": "Repo canonical origin"},
+                "event_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Event types to subscribe to",
+                },
+            },
+            "required": ["workspace_id", "bead_id"],
+        },
+    },
+    {
+        "name": "list_subscriptions",
+        "description": "List active bead subscriptions for a workspace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+            },
+            "required": ["workspace_id"],
+        },
+    },
+    {
+        "name": "unsubscribe",
+        "description": "Remove a bead subscription.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+                "subscription_id": {"type": "string", "description": "Subscription ID"},
+            },
+            "required": ["workspace_id", "subscription_id"],
+        },
+    },
+    {
+        "name": "escalate",
+        "description": "Create a human-in-the-loop escalation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "description": "Workspace UUID"},
+                "alias": {"type": "string", "description": "Agent alias"},
+                "subject": {"type": "string", "description": "Escalation subject"},
+                "situation": {"type": "string", "description": "Description of the situation"},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Options for the human to choose from",
+                },
+                "expires_in_hours": {"type": "integer", "description": "Hours until expiry"},
+                "member_email": {"type": "string", "description": "Email to notify"},
+            },
+            "required": ["workspace_id", "alias", "subject", "situation"],
+        },
+    },
+    {
+        "name": "get_escalation",
+        "description": "Get details of an escalation by ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "escalation_id": {"type": "string", "description": "Escalation ID"},
+            },
+            "required": ["escalation_id"],
+        },
+    },
+]
+
+RESOURCE_CATALOG: list[dict[str, Any]] = [
+    {
+        "uri": "beadhub://status",
+        "name": "Workspace status",
+        "description": "Agents, claims, conflicts, and escalations for the current project.",
+        "mimeType": "application/json",
+    },
+]
+
+
 @router.post("/mcp")
 async def mcp_entry(
     request: Request,
@@ -68,9 +218,77 @@ async def mcp_entry(
     rpc_id = payload.get("id")
     if payload.get("jsonrpc") != "2.0":
         return _rpc_error(rpc_id, -32600, "Invalid jsonrpc version")
-    if payload.get("method") != "tools/call":
-        return _rpc_error(rpc_id, -32601, "Method not found")
 
+    # Authenticate before dispatching any method.
+    try:
+        await get_project_from_auth(request, db_infra)
+    except HTTPException as exc:
+        return _rpc_error(rpc_id, exc.status_code, str(exc.detail))
+
+    method = payload.get("method")
+
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": rpc_id, "result": {"tools": TOOL_CATALOG}}
+
+    if method == "resources/list":
+        return {"jsonrpc": "2.0", "id": rpc_id, "result": {"resources": RESOURCE_CATALOG}}
+
+    if method == "resources/read":
+        return await _handle_resources_read(rpc_id, request, redis, db_infra, payload)
+
+    if method == "tools/call":
+        return await _handle_tools_call(rpc_id, request, redis, db_infra, payload)
+
+    return _rpc_error(rpc_id, -32601, f"Method not found: {method}")
+
+
+async def _handle_resources_read(
+    rpc_id: Any,
+    request: Request,
+    redis: Redis,
+    db_infra: DatabaseInfra,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    params = payload.get("params") or {}
+    uri = params.get("uri")
+    if not isinstance(uri, str) or not uri:
+        return _rpc_error(rpc_id, -32602, "uri parameter is required")
+
+    try:
+        if uri == "beadhub://status":
+            data = await http_status(
+                request, workspace_id=None, repo_id=None, redis=redis, db_infra=db_infra
+            )
+        else:
+            return _rpc_error(rpc_id, -32602, f"Unknown resource URI: {uri}")
+    except HTTPException as exc:
+        return _rpc_error(rpc_id, exc.status_code, str(exc.detail))
+    except Exception:
+        logger.exception("MCP resources/read failed: %s", uri)
+        return _rpc_error(rpc_id, -32000, "Internal error")
+
+    return {
+        "jsonrpc": "2.0",
+        "id": rpc_id,
+        "result": {
+            "contents": [
+                {
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": json.dumps(data),
+                }
+            ]
+        },
+    }
+
+
+async def _handle_tools_call(
+    rpc_id: Any,
+    request: Request,
+    redis: Redis,
+    db_infra: DatabaseInfra,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     params = payload.get("params") or {}
     name = params.get("name")
     arguments = params.get("arguments") or {}
@@ -158,19 +376,6 @@ async def _tool_list_agents(
     workspace_ids = await get_workspace_ids_by_project_id(redis, project_id)
     agents = await list_agent_presences_by_workspace_ids(redis, workspace_ids)
     return {"agents": agents}
-
-
-async def get_workspace_project_id_or_404(db_infra: DatabaseInfra, workspace_id: str) -> str:
-    server_db = db_infra.get_manager("server")
-    row = await server_db.fetch_one(
-        "SELECT project_id, deleted_at FROM {{tables.workspaces}} WHERE workspace_id = $1",
-        workspace_id,
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    if row.get("deleted_at") is not None:
-        raise HTTPException(status_code=410, detail="Workspace was deleted")
-    return str(row["project_id"])
 
 
 async def _tool_status(
