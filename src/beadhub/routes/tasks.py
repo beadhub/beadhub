@@ -208,7 +208,8 @@ async def list_ready_tasks_route(
 ) -> dict[str, Any]:
     project_id = await get_project_from_auth(request, db_infra, manager_name="aweb")
     tasks = await list_ready_tasks(db_infra, project_id=project_id)
-    return {"tasks": tasks}
+    unclaimed = [t for t in tasks if t.get("assignee_agent_id") is None]
+    return {"tasks": unclaimed}
 
 
 @router.get("/blocked")

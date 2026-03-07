@@ -33,7 +33,9 @@ async def _setup_project(client):
         },
     )
     assert resp.status_code == 200, resp.text
-    api_key = resp.json()["api_key"]
+    data = resp.json()
+    api_key = data["api_key"]
+    agent_id = data["agent_id"]
 
     reg = await client.post(
         "/v1/workspaces/register",
@@ -46,6 +48,7 @@ async def _setup_project(client):
         "project_slug": project_slug,
         "workspace_id": reg.json()["workspace_id"],
         "api_key": api_key,
+        "agent_id": agent_id,
         "repo_origin": repo_origin,
     }
 
@@ -262,5 +265,64 @@ async def test_tasks_list_merges_native_and_beads(db_infra):
                 refs = {t["task_ref"] for t in tasks}
                 assert native_ref in refs, f"Expected native task {native_ref} in {refs}"
                 assert "bd-99" in refs, f"Expected beads issue bd-99 in {refs}"
+    finally:
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_ready_excludes_assigned_tasks(db_infra):
+    """GET /v1/tasks/ready excludes tasks that have an assignee."""
+    redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)
+    try:
+        try:
+            await redis.ping()
+        except Exception:
+            pytest.skip("Redis is not available")
+        await redis.flushdb()
+        app = create_app(db_infra=db_infra, redis=redis, serve_frontend=False)
+        async with LifespanManager(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                setup = await _setup_project(client)
+                headers = {"Authorization": f"Bearer {setup['api_key']}"}
+
+                agent_id = setup["agent_id"]
+
+                # Create two open tasks
+                resp = await client.post(
+                    "/v1/tasks",
+                    headers=headers,
+                    json={"title": "Unclaimed task", "task_type": "task", "priority": 2},
+                )
+                assert resp.status_code == 200, resp.text
+
+                resp = await client.post(
+                    "/v1/tasks",
+                    headers=headers,
+                    json={"title": "Claimed task", "task_type": "task", "priority": 2},
+                )
+                assert resp.status_code == 200, resp.text
+                claimed_ref = resp.json()["task_ref"]
+
+                # Assign the second task without changing status (stays open)
+                resp = await client.patch(
+                    f"/v1/tasks/{claimed_ref}",
+                    headers=headers,
+                    json={"assignee_agent_id": agent_id},
+                )
+                assert resp.status_code == 200, resp.text
+                assert resp.json()["status"] == "open"
+                assert resp.json()["assignee_agent_id"] is not None
+
+                # GET /v1/tasks/ready should only return the unclaimed task
+                resp = await client.get("/v1/tasks/ready", headers=headers)
+                assert resp.status_code == 200, resp.text
+                tasks = resp.json()["tasks"]
+                titles = [t["title"] for t in tasks]
+                refs = [t["task_ref"] for t in tasks]
+                assert "Unclaimed task" in titles
+                assert "Claimed task" not in titles
+                assert claimed_ref not in refs
     finally:
         await redis.aclose()
