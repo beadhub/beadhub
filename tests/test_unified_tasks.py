@@ -270,6 +270,107 @@ async def test_tasks_list_merges_native_and_beads(db_infra):
 
 
 @pytest.mark.asyncio
+async def test_tasks_list_filters_beads_by_labels(db_infra):
+    """GET /v1/tasks?labels=X filters beads issues by label, not just native tasks."""
+    redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)
+    try:
+        try:
+            await redis.ping()
+        except Exception:
+            pytest.skip("Redis is not available")
+        await redis.flushdb()
+        app = create_app(db_infra=db_infra, redis=redis, serve_frontend=False)
+        async with LifespanManager(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                setup = await _setup_project(client)
+                headers = {"Authorization": f"Bearer {setup['api_key']}"}
+
+                # Upload two beads issues with different labels
+                await _upload_beads_issues(
+                    client,
+                    setup["api_key"],
+                    [
+                        {
+                            "id": "bd-labeled",
+                            "title": "Has backend label",
+                            "status": "open",
+                            "priority": 1,
+                            "labels": ["backend", "api"],
+                        },
+                        {
+                            "id": "bd-unlabeled",
+                            "title": "No matching label",
+                            "status": "open",
+                            "priority": 1,
+                            "labels": ["frontend"],
+                        },
+                    ],
+                )
+
+                # Filter by labels=backend — should only return bd-labeled
+                resp = await client.get("/v1/tasks", params={"labels": "backend"}, headers=headers)
+                assert resp.status_code == 200, resp.text
+                tasks = resp.json()["tasks"]
+                refs = {t["task_ref"] for t in tasks}
+                assert "bd-labeled" in refs, f"Expected bd-labeled in filtered results, got {refs}"
+                assert (
+                    "bd-unlabeled" not in refs
+                ), f"bd-unlabeled should be excluded by label filter, got {refs}"
+    finally:
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_tasks_list_excludes_beads_when_assignee_filtered(db_infra):
+    """GET /v1/tasks?assignee_agent_id=X excludes beads issues (they have no assignee)."""
+    redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)
+    try:
+        try:
+            await redis.ping()
+        except Exception:
+            pytest.skip("Redis is not available")
+        await redis.flushdb()
+        app = create_app(db_infra=db_infra, redis=redis, serve_frontend=False)
+        async with LifespanManager(app):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                setup = await _setup_project(client)
+                headers = {"Authorization": f"Bearer {setup['api_key']}"}
+
+                # Upload a beads issue
+                await _upload_beads_issues(
+                    client,
+                    setup["api_key"],
+                    [
+                        {
+                            "id": "bd-noassign",
+                            "title": "Beads issue without assignee",
+                            "status": "open",
+                            "priority": 1,
+                        },
+                    ],
+                )
+
+                # Filter by assignee — beads issues should be excluded
+                resp = await client.get(
+                    "/v1/tasks",
+                    params={"assignee_agent_id": setup["agent_id"]},
+                    headers=headers,
+                )
+                assert resp.status_code == 200, resp.text
+                tasks = resp.json()["tasks"]
+                refs = {t["task_ref"] for t in tasks}
+                assert (
+                    "bd-noassign" not in refs
+                ), f"Beads issues should be excluded when filtering by assignee, got {refs}"
+    finally:
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
 async def test_ready_excludes_assigned_tasks(db_infra):
     """GET /v1/tasks/ready excludes tasks that have an assignee."""
     redis = await Redis.from_url(TEST_REDIS_URL, decode_responses=True)

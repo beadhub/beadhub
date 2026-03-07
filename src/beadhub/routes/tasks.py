@@ -84,6 +84,7 @@ async def _fetch_beads_issues(
     status: str | None = None,
     task_type: str | None = None,
     priority: int | None = None,
+    labels: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch beads issues for a project, applying optional filters."""
     try:
@@ -113,6 +114,11 @@ async def _fetch_beads_issues(
     if priority is not None:
         conditions.append(f"priority = ${idx}")
         params.append(priority)
+        idx += 1
+
+    if labels is not None:
+        conditions.append(f"labels @> ${idx}::TEXT[]")
+        params.append(labels)
         idx += 1
 
     where = " AND ".join(conditions)
@@ -187,10 +193,18 @@ async def list_tasks_unified(
         labels=label_list,
     )
 
-    # Beads fallback: merge in beads issues (labels/assignee filters don't apply to beads)
-    beads_tasks = await _fetch_beads_issues(
-        db_infra, project_id, status=status, task_type=task_type, priority=priority
-    )
+    # Beads fallback: skip when filtering by assignee (beads have no assignee concept)
+    if assignee_agent_id:
+        beads_tasks = []
+    else:
+        beads_tasks = await _fetch_beads_issues(
+            db_infra,
+            project_id,
+            status=status,
+            task_type=task_type,
+            priority=priority,
+            labels=label_list,
+        )
 
     # Deduplicate: native task_ref takes priority over beads
     native_refs = {t["task_ref"] for t in native_tasks}
