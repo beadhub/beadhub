@@ -375,15 +375,15 @@ async def test_unclaimed_event_routed_to_claimant_not_actor(db_infra, redis_clie
                 unclaimed_b = [e for e in events_b if e["type"] == "bead.unclaimed"]
 
                 # The unclaimed event should go to workspace A (claimant), not B (actor)
-                assert len(unclaimed_a) == 1, (
-                    f"Expected 1 bead.unclaimed event on claimant channel, got {len(unclaimed_a)}"
-                )
+                assert (
+                    len(unclaimed_a) == 1
+                ), f"Expected 1 bead.unclaimed event on claimant channel, got {len(unclaimed_a)}"
                 assert unclaimed_a[0]["bead_id"] == "bd-route-1"
                 assert unclaimed_a[0]["workspace_id"] == ws_a
 
-                assert len(unclaimed_b) == 0, (
-                    f"Expected 0 bead.unclaimed events on actor channel, got {unclaimed_b}"
-                )
+                assert (
+                    len(unclaimed_b) == 0
+                ), f"Expected 0 bead.unclaimed events on actor channel, got {unclaimed_b}"
             finally:
                 await pubsub_a.unsubscribe()
                 await pubsub_a.aclose()

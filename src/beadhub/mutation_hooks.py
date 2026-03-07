@@ -216,9 +216,7 @@ async def _cascade_task_status_changed(
             bead_id=task_ref,
         )
         if claimant_ids:
-            claimant_aliases = await fetch_workspace_aliases(
-                db_infra, project_id, claimant_ids
-            )
+            claimant_aliases = await fetch_workspace_aliases(db_infra, project_id, claimant_ids)
             for cid in claimant_ids:
                 await publish_event(
                     redis,

@@ -617,9 +617,7 @@ async def sync(
             )
             if claimant_ids:
                 title = await _get_bead_title(beads_db, project_id, bead_id)
-                claimant_aliases = await fetch_workspace_aliases(
-                    db_infra, project_id, claimant_ids
-                )
+                claimant_aliases = await fetch_workspace_aliases(db_infra, project_id, claimant_ids)
                 slug = await _get_project_slug()
                 for cid in claimant_ids:
                     await publish_event(
@@ -642,9 +640,7 @@ async def sync(
                 bead_id=bid,
             )
             if claimant_ids:
-                claimant_aliases = await fetch_workspace_aliases(
-                    db_infra, project_id, claimant_ids
-                )
+                claimant_aliases = await fetch_workspace_aliases(db_infra, project_id, claimant_ids)
                 slug = await _get_project_slug()
                 for cid in claimant_ids:
                     await publish_event(
