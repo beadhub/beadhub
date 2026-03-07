@@ -8,8 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from redis.asyncio import Redis
 
+from aweb.messages_service import deliver_message
+from aweb.messages_service import utc_iso as _utc_iso
 from beadhub.auth import verify_workspace_access
-from beadhub.aweb_introspection import get_project_from_auth
+from beadhub.aweb_introspection import AuthIdentity, get_identity_from_auth, get_project_from_auth
 
 from ..db import DatabaseInfra, get_db_infra
 from ..presence import (
@@ -190,6 +192,101 @@ TOOL_CATALOG: list[dict[str, Any]] = [
             "required": ["escalation_id"],
         },
     },
+    {
+        "name": "send_message",
+        "description": "Send a message to one or more agents (Agent Mail compatible).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Project slug"},
+                "sender_name": {"type": "string", "description": "Sender agent alias"},
+                "to": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Recipient agent aliases",
+                },
+                "subject": {"type": "string", "description": "Message subject"},
+                "body_md": {"type": "string", "description": "Message body (markdown)"},
+                "importance": {
+                    "type": "string",
+                    "description": "Message priority (normal, urgent)",
+                    "default": "normal",
+                },
+                "thread_id": {"type": "string", "description": "Thread UUID for grouping"},
+            },
+            "required": ["project_key", "sender_name", "to", "subject", "body_md"],
+        },
+    },
+    {
+        "name": "fetch_inbox",
+        "description": "Fetch inbox messages for an agent (Agent Mail compatible).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Project slug"},
+                "agent_name": {"type": "string", "description": "Agent alias"},
+                "limit": {"type": "integer", "description": "Max messages to return"},
+                "urgent_only": {"type": "boolean", "description": "Only urgent messages"},
+                "include_bodies": {
+                    "type": "boolean",
+                    "description": "Include message bodies",
+                    "default": True,
+                },
+                "since_ts": {"type": "string", "description": "ISO timestamp filter"},
+            },
+            "required": ["project_key", "agent_name"],
+        },
+    },
+    {
+        "name": "acknowledge_message",
+        "description": "Acknowledge a message (Agent Mail compatible).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Project slug"},
+                "agent_name": {"type": "string", "description": "Agent alias"},
+                "message_id": {"type": "string", "description": "Message UUID"},
+            },
+            "required": ["project_key", "agent_name", "message_id"],
+        },
+    },
+    {
+        "name": "mark_message_read",
+        "description": "Mark a message as read (Agent Mail compatible).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Project slug"},
+                "agent_name": {"type": "string", "description": "Agent alias"},
+                "message_id": {"type": "string", "description": "Message UUID"},
+            },
+            "required": ["project_key", "agent_name", "message_id"],
+        },
+    },
+    {
+        "name": "reply_message",
+        "description": "Reply to a message, preserving the thread (Agent Mail compatible).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Project slug"},
+                "message_id": {"type": "string", "description": "Message UUID to reply to"},
+                "sender_name": {"type": "string", "description": "Sender agent alias"},
+                "body_md": {"type": "string", "description": "Reply body (markdown)"},
+                "to": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Override recipients (default: original sender)",
+                },
+                "subject_prefix": {
+                    "type": "string",
+                    "description": "Subject prefix (default: Re:)",
+                    "default": "Re:",
+                },
+            },
+            "required": ["project_key", "message_id", "sender_name", "body_md"],
+        },
+    },
 ]
 
 RESOURCE_CATALOG: list[dict[str, Any]] = [
@@ -318,6 +415,16 @@ async def _handle_tools_call(
             result = await _tool_escalate(request, redis, db_infra, arguments)
         elif name == "get_escalation":
             result = await _tool_get_escalation(request, db_infra, arguments)
+        elif name == "send_message":
+            result = await _tool_send_message(request, db_infra, arguments)
+        elif name == "fetch_inbox":
+            result = await _tool_fetch_inbox(request, db_infra, arguments)
+        elif name == "acknowledge_message":
+            result = await _tool_acknowledge_message(request, db_infra, arguments)
+        elif name == "mark_message_read":
+            result = await _tool_mark_message_read(request, db_infra, arguments)
+        elif name == "reply_message":
+            result = await _tool_reply_message(request, db_infra, arguments)
         else:
             return _rpc_error(rpc_id, -32601, f"Unknown tool: {name}")
     except HTTPException as exc:
@@ -541,3 +648,386 @@ async def _tool_get_escalation(
     return await http_get_escalation(
         escalation_id=escalation_id, request=request, db_infra=db_infra
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent Mail-compatible messaging tools
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_agent_id(db_infra: DatabaseInfra, project_id: str, alias: str) -> str:
+    """Resolve an agent alias to its agent_id within a project."""
+    aweb_db = db_infra.get_manager("aweb")
+    row = await aweb_db.fetch_one(
+        """
+        SELECT agent_id
+        FROM {{tables.agents}}
+        WHERE project_id = $1 AND alias = $2 AND deleted_at IS NULL
+        """,
+        UUID(project_id),
+        alias,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Agent '{alias}' not found")
+    return str(row["agent_id"])
+
+
+async def _enforce_actor_binding(
+    identity: AuthIdentity, db_infra: DatabaseInfra, project_id: str, agent_name: str
+) -> str:
+    """Verify that agent_name matches the authenticated agent and return the agent_id."""
+    if identity.agent_id is None:
+        raise HTTPException(status_code=403, detail="No agent identity in auth context")
+    agent_id = await _resolve_agent_id(db_infra, project_id, agent_name)
+    if agent_id != identity.agent_id:
+        raise HTTPException(
+            status_code=403, detail="agent_name does not match authenticated agent"
+        )
+    return agent_id
+
+
+async def _validate_project_key(
+    db_infra: DatabaseInfra, project_id: str, project_key: str | None
+) -> None:
+    """Validate project_key matches the authenticated project's slug, if provided."""
+    if not project_key:
+        return
+    server_db = db_infra.get_manager("server")
+    row = await server_db.fetch_one(
+        "SELECT slug FROM {{tables.projects}} WHERE id = $1",
+        UUID(project_id),
+    )
+    if row and row["slug"] != project_key:
+        raise HTTPException(
+            status_code=403,
+            detail="project_key does not match authenticated project",
+        )
+
+
+VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
+
+
+async def _tool_send_message(
+    request: Request,
+    db_infra: DatabaseInfra,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    identity = await get_identity_from_auth(request, db_infra)
+    project_id = identity.project_id
+    project_key = args.get("project_key")
+    sender_name = str(args.get("sender_name") or "").strip()
+    to_list = args.get("to") or []
+    subject = str(args.get("subject") or "").strip()
+    body_md = str(args.get("body_md") or "").strip()
+    importance = str(args.get("importance") or "normal").strip()
+    thread_id = args.get("thread_id")
+
+    await _validate_project_key(db_infra, project_id, project_key)
+
+    if not sender_name or not to_list or not subject:
+        raise HTTPException(
+            status_code=422, detail="sender_name, to, and subject are required"
+        )
+    if importance not in VALID_PRIORITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"importance must be one of: {sorted(VALID_PRIORITIES)}",
+        )
+
+    sender_agent_id = await _enforce_actor_binding(
+        identity, db_infra, project_id, sender_name
+    )
+
+    deliveries: list[dict[str, Any]] = []
+    for recipient_alias in to_list:
+        recipient_alias = str(recipient_alias).strip()
+        recipient_agent_id = await _resolve_agent_id(db_infra, project_id, recipient_alias)
+        message_id, created_at = await deliver_message(
+            db_infra,
+            project_id=project_id,
+            from_agent_id=sender_agent_id,
+            from_alias=sender_name,
+            to_agent_id=recipient_agent_id,
+            subject=subject,
+            body=body_md,
+            priority=importance,
+            thread_id=thread_id,
+        )
+        deliveries.append(
+            {
+                "to": recipient_alias,
+                "message_id": str(message_id),
+                "status": "delivered",
+                "delivered_at": _utc_iso(created_at),
+            }
+        )
+
+    return {"deliveries": deliveries, "count": len(deliveries)}
+
+
+async def _tool_fetch_inbox(
+    request: Request,
+    db_infra: DatabaseInfra,
+    args: dict[str, Any],
+) -> list[dict[str, Any]]:
+    identity = await get_identity_from_auth(request, db_infra)
+    project_id = identity.project_id
+    project_key = args.get("project_key")
+    agent_name = str(args.get("agent_name") or "").strip()
+    limit = int(args.get("limit") or 50)
+    urgent_only = bool(args.get("urgent_only", False))
+    include_bodies = bool(args.get("include_bodies", True))
+    since_ts = args.get("since_ts")
+
+    await _validate_project_key(db_infra, project_id, project_key)
+
+    if not agent_name:
+        raise HTTPException(status_code=422, detail="agent_name is required")
+
+    if since_ts is not None:
+        since_ts = str(since_ts).strip()
+        try:
+            from datetime import datetime
+
+            datetime.fromisoformat(since_ts.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="Invalid since_ts format")
+
+    agent_id = await _enforce_actor_binding(identity, db_infra, project_id, agent_name)
+
+    aweb_db = db_infra.get_manager("aweb")
+
+    query = """
+        SELECT message_id, from_agent_id, from_alias, subject, body, priority,
+               thread_id, read_at, created_at
+        FROM {{tables.messages}}
+        WHERE project_id = $1
+          AND to_agent_id = $2
+    """
+    params: list[Any] = [UUID(project_id), UUID(agent_id)]
+    param_idx = 3
+
+    if urgent_only:
+        query += f"  AND priority = ${param_idx}\n"
+        params.append("urgent")
+        param_idx += 1
+
+    if since_ts:
+        query += f"  AND created_at >= ${param_idx}::timestamptz\n"
+        params.append(since_ts)
+        param_idx += 1
+
+    query += f"ORDER BY created_at DESC\nLIMIT ${param_idx}"
+    params.append(limit)
+
+    rows = await aweb_db.fetch_all(query, *params)
+
+    messages = []
+    for r in rows:
+        msg: dict[str, Any] = {
+            "message_id": str(r["message_id"]),
+            "from_agent_id": str(r["from_agent_id"]),
+            "from_alias": r["from_alias"],
+            "subject": r["subject"],
+            "priority": r["priority"],
+            "thread_id": str(r["thread_id"]) if r["thread_id"] else None,
+            "read": r["read_at"] is not None,
+            "read_at": _utc_iso(r["read_at"]) if r["read_at"] else None,
+            "created_at": _utc_iso(r["created_at"]),
+        }
+        if include_bodies:
+            msg["body"] = r["body"]
+        messages.append(msg)
+
+    return messages
+
+
+async def _tool_acknowledge_message(
+    request: Request,
+    db_infra: DatabaseInfra,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    identity = await get_identity_from_auth(request, db_infra)
+    project_id = identity.project_id
+    project_key = args.get("project_key")
+    agent_name = str(args.get("agent_name") or "").strip()
+    message_id = str(args.get("message_id") or "").strip()
+
+    await _validate_project_key(db_infra, project_id, project_key)
+
+    if not agent_name or not message_id:
+        raise HTTPException(
+            status_code=422, detail="agent_name and message_id are required"
+        )
+
+    agent_id = await _enforce_actor_binding(identity, db_infra, project_id, agent_name)
+    return await _mark_message_read_impl(db_infra, project_id, agent_id, message_id, ack=True)
+
+
+async def _tool_mark_message_read(
+    request: Request,
+    db_infra: DatabaseInfra,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    identity = await get_identity_from_auth(request, db_infra)
+    project_id = identity.project_id
+    project_key = args.get("project_key")
+    agent_name = str(args.get("agent_name") or "").strip()
+    message_id = str(args.get("message_id") or "").strip()
+
+    await _validate_project_key(db_infra, project_id, project_key)
+
+    if not agent_name or not message_id:
+        raise HTTPException(
+            status_code=422, detail="agent_name and message_id are required"
+        )
+
+    agent_id = await _enforce_actor_binding(identity, db_infra, project_id, agent_name)
+    return await _mark_message_read_impl(db_infra, project_id, agent_id, message_id, ack=False)
+
+
+async def _mark_message_read_impl(
+    db_infra: DatabaseInfra,
+    project_id: str,
+    agent_id: str,
+    message_id: str,
+    *,
+    ack: bool,
+) -> dict[str, Any]:
+    """Shared implementation for acknowledge_message and mark_message_read.
+
+    In BeadHub's aweb model, both operations set read_at. The ``ack`` flag
+    controls whether the response uses acknowledge-style fields.
+    """
+    try:
+        message_uuid = UUID(message_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid message_id format")
+
+    aweb_db = db_infra.get_manager("aweb")
+
+    # Ownership check: distinguish 404 (message not found) from 403 (not yours)
+    row = await aweb_db.fetch_one(
+        """
+        SELECT to_agent_id
+        FROM {{tables.messages}}
+        WHERE project_id = $1 AND message_id = $2
+        """,
+        UUID(project_id),
+        message_uuid,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if str(row["to_agent_id"]) != agent_id:
+        raise HTTPException(status_code=403, detail="Not authorized for this message")
+
+    updated = await aweb_db.fetch_one(
+        """
+        UPDATE {{tables.messages}}
+        SET read_at = COALESCE(read_at, NOW())
+        WHERE project_id = $1 AND message_id = $2
+        RETURNING read_at
+        """,
+        UUID(project_id),
+        message_uuid,
+    )
+    read_at = _utc_iso(updated["read_at"]) if updated and updated["read_at"] else None
+
+    if ack:
+        return {
+            "message_id": message_id,
+            "acknowledged": True,
+            "acknowledged_at": read_at,
+            "read_at": read_at,
+        }
+    return {
+        "message_id": message_id,
+        "read": True,
+        "read_at": read_at,
+    }
+
+
+async def _tool_reply_message(
+    request: Request,
+    db_infra: DatabaseInfra,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    identity = await get_identity_from_auth(request, db_infra)
+    project_id = identity.project_id
+    project_key = args.get("project_key")
+    original_message_id = str(args.get("message_id") or "").strip()
+    sender_name = str(args.get("sender_name") or "").strip()
+    body_md = str(args.get("body_md") or "").strip()
+    to_override = args.get("to")
+    subject_prefix = str(args.get("subject_prefix") or "Re:").strip()
+
+    await _validate_project_key(db_infra, project_id, project_key)
+
+    if not original_message_id or not sender_name or not body_md:
+        raise HTTPException(
+            status_code=422,
+            detail="message_id, sender_name, and body_md are required",
+        )
+
+    sender_agent_id = await _enforce_actor_binding(
+        identity, db_infra, project_id, sender_name
+    )
+
+    try:
+        original_uuid = UUID(original_message_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid message_id format")
+
+    aweb_db = db_infra.get_manager("aweb")
+    original = await aweb_db.fetch_one(
+        """
+        SELECT from_agent_id, from_alias, subject, thread_id
+        FROM {{tables.messages}}
+        WHERE project_id = $1 AND message_id = $2
+        """,
+        UUID(project_id),
+        original_uuid,
+    )
+    if not original:
+        raise HTTPException(status_code=404, detail="Original message not found")
+
+    # Determine thread: reuse existing or create from original message_id
+    thread_id = str(original["thread_id"]) if original["thread_id"] else original_message_id
+
+    # Determine recipients: override or reply to original sender
+    if to_override and isinstance(to_override, list):
+        recipient_aliases = [str(a).strip() for a in to_override]
+    else:
+        recipient_aliases = [original["from_alias"]]
+
+    reply_subject = f"{subject_prefix} {original['subject']}"
+
+    deliveries: list[dict[str, Any]] = []
+    for recipient_alias in recipient_aliases:
+        recipient_agent_id = await _resolve_agent_id(db_infra, project_id, recipient_alias)
+        message_id, created_at = await deliver_message(
+            db_infra,
+            project_id=project_id,
+            from_agent_id=sender_agent_id,
+            from_alias=sender_name,
+            to_agent_id=recipient_agent_id,
+            subject=reply_subject,
+            body=body_md,
+            priority="normal",
+            thread_id=thread_id,
+        )
+        deliveries.append(
+            {
+                "to": recipient_alias,
+                "message_id": str(message_id),
+                "status": "delivered",
+                "delivered_at": _utc_iso(created_at),
+            }
+        )
+
+    return {
+        "thread_id": thread_id,
+        "reply_to": original_message_id,
+        "deliveries": deliveries,
+        "count": len(deliveries),
+    }
