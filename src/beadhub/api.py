@@ -7,9 +7,16 @@ from typing import Optional
 from aweb.routes.agents import router as aweb_agents_router
 from aweb.routes.auth import router as aweb_auth_router
 from aweb.routes.chat import router as aweb_chat_router
+from aweb.routes.claims import router as aweb_claims_router
+from aweb.routes.contacts import router as aweb_contacts_router
+from aweb.routes.conversations import router as aweb_conversations_router
+from aweb.routes.events import router as aweb_events_router
+from aweb.routes.init import router as aweb_init_router
 from aweb.routes.messages import router as aweb_messages_router
+from aweb.routes.policies import router as aweb_policies_router
 from aweb.routes.projects import router as aweb_projects_router
 from aweb.routes.reservations import router as aweb_reservations_router
+from aweb.routes.status import router as aweb_status_router
 from aweb.routes.tasks import router as aweb_tasks_router
 from aweb.service_errors import ServiceError
 from fastapi import FastAPI, HTTPException, Request
@@ -237,14 +244,32 @@ def create_app(
         return {"status": "ok" if healthy else "unhealthy", "checks": checks}
 
     # aweb protocol routes (BeadHub is an aweb server).
-    # Note: BeadHub overrides `/v1/init` with an extended init endpoint.
+    # Keep this sequence aligned with aweb.api.include_aweb_routers() while
+    # mounting BeadHub overrides immediately before overlapping aweb routers.
+    # That preserves BeadHub behavior on shared paths and still exposes new
+    # aweb-only surfaces like contacts, conversations, and events.
     if enable_bootstrap_routes:
         app.include_router(init_router)
+        app.include_router(aweb_init_router)
     app.include_router(aweb_auth_router)
+    # beadhub's agents router takes precedence for GET /v1/agents and
+    # POST /v1/agents/suggest-alias-prefix. aweb still handles lifecycle
+    # routes like /me/*, /resolve/*, and heartbeat.
+    app.include_router(agents_router)
+    app.include_router(aweb_agents_router)
     app.include_router(aweb_chat_router)
+    app.include_router(claims_router)
+    app.include_router(aweb_claims_router)
+    app.include_router(aweb_contacts_router)
+    app.include_router(aweb_conversations_router)
+    app.include_router(aweb_events_router)
     app.include_router(aweb_messages_router)
+    app.include_router(policies_router)
+    app.include_router(aweb_policies_router)
     app.include_router(aweb_projects_router)
     app.include_router(aweb_reservations_router)
+    app.include_router(status_router)
+    app.include_router(aweb_status_router)
     # beadhub tasks router overrides GET endpoints to add beads fallback.
     # Mounted before aweb_tasks_router so GET routes take priority;
     # aweb_tasks_router still handles POST, PATCH, DELETE, deps, comments.
@@ -253,17 +278,8 @@ def create_app(
 
     # beadhub endpoints.
     app.include_router(bdh_router)
-    app.include_router(agents_router)
-    # aweb agent lifecycle routes. beadhub's agents_router (above) takes precedence on
-    # GET "" (list) and POST /suggest-alias-prefix, masking the aweb versions of those
-    # two routes. All other aweb lifecycle routes (rotate, retire, deregister, log,
-    # resolve, heartbeat, access mode) are not duplicated and route to aweb normally.
-    app.include_router(aweb_agents_router)
     app.include_router(beads_router)
-    app.include_router(claims_router)
     app.include_router(escalations_router)
-    app.include_router(policies_router)
-    app.include_router(status_router)
     app.include_router(subscriptions_router)
     app.include_router(workspaces_router)
     app.include_router(repos_router)

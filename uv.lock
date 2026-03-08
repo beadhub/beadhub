@@ -105,7 +105,7 @@ wheels = [
 
 [[package]]
 name = "aweb"
-version = "0.3.7"
+version = "0.3.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "base58" },
@@ -121,9 +121,9 @@ dependencies = [
     { name = "typer" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/97/9a/f6f6e45d8046bd3d221e540da3bb7bc10bd6672f68995870d64bb49ca02a/aweb-0.3.7.tar.gz", hash = "sha256:aa4cfa3cb35c474985162f6a9729ada37d752c49529d796ced93214821b6ca3d", size = 235729, upload-time = "2026-03-06T18:00:01.369Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/44/73ad28849bc2bd27f81e51cd9b5b49e18fb4d4d8cf602afff1f4c50d949d/aweb-0.3.8.tar.gz", hash = "sha256:750fdf19dd0f08010e28a3b522aa7fb5ff0cabb488c9a5554353e865fca8e4dd", size = 253445, upload-time = "2026-03-08T11:38:56.937Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/ff/f06ab50e1a46d530e62edd11a6b247b7712ef4e91d7c42c82ab64b677ee9/aweb-0.3.7-py3-none-any.whl", hash = "sha256:dce9c4a513dd331bfbb02ae3f4960cbc408683052e0adc19d73ba2e34c462523", size = 98315, upload-time = "2026-03-06T17:59:59.766Z" },
+    { url = "https://files.pythonhosted.org/packages/35/f8/9deaa48e1d41b6df8fc49e896e269a6160c2fa991415ef80e5b826aedb3e/aweb-0.3.8-py3-none-any.whl", hash = "sha256:92c58eafce3b30f2768e3c0d1af12e9b1f1f62676d2c3dcb13ca1074c335f495", size = 102402, upload-time = "2026-03-08T11:38:58.414Z" },
 ]
 
 [[package]]
@@ -235,7 +235,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=25.1.0" },
-    { name = "aweb", specifier = ">=0.3.7" },
+    { name = "aweb", specifier = ">=0.3.8" },
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.93.0" },
