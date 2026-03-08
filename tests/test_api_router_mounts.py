@@ -16,7 +16,9 @@ def test_create_app_mounts_aweb_routes_and_preserves_beadhub_overrides():
     assert _first_route(app, "/v1/init", "POST").endpoint.__module__ == "beadhub.routes.init"
     assert _first_route(app, "/v1/agents", "GET").endpoint.__module__ == "beadhub.routes.agents"
     assert _first_route(app, "/v1/claims", "GET").endpoint.__module__ == "beadhub.routes.claims"
-    assert _first_route(app, "/v1/policies", "POST").endpoint.__module__ == "beadhub.routes.policies"
+    assert (
+        _first_route(app, "/v1/policies", "POST").endpoint.__module__ == "beadhub.routes.policies"
+    )
     assert _first_route(app, "/v1/status", "GET").endpoint.__module__ == "beadhub.routes.status"
     assert _first_route(app, "/v1/tasks", "GET").endpoint.__module__ == "beadhub.routes.tasks"
 
