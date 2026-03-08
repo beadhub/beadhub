@@ -25,6 +25,39 @@ import { useStore } from "../hooks/useStore"
 
 const MAX_SUBJECT_LENGTH = 200
 const MAX_BODY_LENGTH = 10000
+const SEND_RETRY_DELAYS_MS = [250, 500] as const
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function isRetryableSendError(error: unknown) {
+  if (typeof error === "object" && error !== null && "status" in error) {
+    const status = (error as { status?: unknown }).status
+    return typeof status === "number" && status >= 500 && status < 600
+  }
+
+  return error instanceof TypeError
+}
+
+async function sendMessageWithRetry<T>(send: () => Promise<T>) {
+  for (let attempt = 0; attempt <= SEND_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await send()
+    } catch (error) {
+      const shouldRetry =
+        attempt < SEND_RETRY_DELAYS_MS.length && isRetryableSendError(error)
+      if (!shouldRetry) {
+        throw error
+      }
+      await sleep(SEND_RETRY_DELAYS_MS[attempt])
+    }
+  }
+
+  throw new Error("Message send failed after retries")
+}
 
 interface SendMessageDialogProps {
   open: boolean
@@ -65,18 +98,27 @@ export function SendMessageDialog({
       if (!body.trim()) {
         throw new Error("Message cannot be empty")
       }
-      return api.sendMessage(
-        dashboardIdentity.workspace_id,
-        dashboardIdentity.alias,
-        targetWorkspaceId,
-        subject,
-        body,
-        priority
+      return sendMessageWithRetry(() =>
+        api.sendMessage(
+          dashboardIdentity.workspace_id,
+          dashboardIdentity.alias,
+          targetWorkspaceId,
+          subject,
+          body,
+          priority
+        )
       )
+    },
+    onMutate: () => {
+      setError(null)
+      setSuccess(false)
     },
     onSuccess: () => {
       setSuccess(true)
       setError(null)
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+      }
       successTimeoutRef.current = setTimeout(() => {
         resetForm()
         onOpenChange(false)
