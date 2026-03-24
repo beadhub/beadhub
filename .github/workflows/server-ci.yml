@@ -43,6 +43,13 @@ jobs:
         working-directory: server
         run: uv build
 
+      - name: Smoke test installed wheel
+        working-directory: server
+        run: |
+          python -m venv /tmp/aweb-wheel-smoke
+          /tmp/aweb-wheel-smoke/bin/pip install dist/*.whl
+          /tmp/aweb-wheel-smoke/bin/aweb --help
+
       - name: Run server test suite
         working-directory: server
         env:
