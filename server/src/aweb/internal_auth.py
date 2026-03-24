@@ -32,6 +32,10 @@ INTERNAL_PROJECT_HEADER = "X-Project-ID"
 INTERNAL_USER_HEADER = "X-User-ID"
 INTERNAL_API_KEY_ID_HEADER = "X-API-Key"
 INTERNAL_ACTOR_ID_HEADER = "X-AWEB-Actor-ID"
+# Trusted only inside the AWEB_TRUST_PROXY_HEADERS boundary. The auth bridge
+# injects this header after validating the user's actual project role; it is
+# NOT covered by the HMAC signature on X-AWEB-Auth. Callers must always gate
+# on a valid InternalAuthContext before reading this header.
 INTERNAL_PROJECT_ROLE_HEADER = "X-AWEB-Project-Role"
 
 
