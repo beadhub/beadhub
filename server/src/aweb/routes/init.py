@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aweb.auth import validate_project_slug
 from aweb.address_reachability import normalize_address_reachability
@@ -39,12 +39,16 @@ class InitRequest(BaseModel):
     project_slug: str = Field(default="", max_length=256)
     project_name: str = Field(default="", max_length=256)
     alias: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, max_length=64)
     human_name: str = Field(default="", max_length=64)
     agent_type: str = Field(default="agent", max_length=32)
     lifetime: str = Field(default="ephemeral", pattern="^(persistent|ephemeral)$")
     custody: str | None = Field(default=None, pattern="^(self|custodial)$")
     namespace: str | None = Field(default=None, min_length=1, max_length=63)
+    namespace_slug: str | None = Field(default=None, min_length=1, max_length=63)
     address_reachability: str | None = Field(default=None, max_length=32)
+    did: str | None = Field(default=None, max_length=512)
+    public_key: str | None = Field(default=None, max_length=512)
 
     # aweb coordination extension fields (optional)
     project_id: str | None = Field(default=None, max_length=36)
@@ -52,6 +56,15 @@ class InitRequest(BaseModel):
     role: str = Field(default="agent", max_length=ROLE_MAX_LENGTH)
     hostname: str = Field(default="", max_length=255)
     workspace_path: str = Field(default="", max_length=4096)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_namespace_slug(cls, values):
+        if isinstance(values, dict):
+            ns_slug = values.get("namespace_slug")
+            if ns_slug and not values.get("namespace"):
+                values["namespace"] = ns_slug
+        return values
 
     @field_validator("project_slug")
     @classmethod
@@ -136,11 +149,13 @@ class InitResponse(BaseModel):
     api_key: str
     project_id: str
     project_slug: str
+    identity_id: str
     agent_id: str
     repo_id: str | None = None
     canonical_origin: str | None = None
     workspace_id: str | None = None
     alias: str
+    name: str | None = None
     created: bool = False
     workspace_created: bool = False
     did: str | None = None
@@ -148,8 +163,10 @@ class InitResponse(BaseModel):
     custody: str | None = None
     lifetime: str = "ephemeral"
     namespace: str | None = None
+    namespace_slug: str | None = None
     address: str | None = None
     address_reachability: str | None = None
+    server_url: str | None = None
 
 
 async def _infer_project_slug_from_repo(
@@ -321,6 +338,8 @@ async def init(
             lifetime=payload.lifetime,
             # custody=None → aweb defaults to "custodial" (server holds the signing key)
             custody=payload.custody,
+            did=payload.did,
+            public_key=payload.public_key,
             namespace=payload.namespace,
             address_reachability=payload.address_reachability,
         )
@@ -335,14 +354,17 @@ async def init(
             api_key=identity.api_key,
             project_id=identity.project_id,
             project_slug=identity.project_slug,
+            identity_id=identity.agent_id,
             agent_id=identity.agent_id,
             alias=identity.alias,
+            name=payload.name,
             created=identity.created,
             did=identity.did,
             stable_id=identity.stable_id,
             custody=identity.custody,
             lifetime=identity.lifetime,
             namespace=identity.namespace,
+            namespace_slug=identity.namespace,
             address=identity.address,
             address_reachability=identity.address_reachability,
         )
@@ -454,11 +476,13 @@ async def init(
         api_key=identity.api_key,
         project_id=identity.project_id,
         project_slug=identity.project_slug,
+        identity_id=identity.agent_id,
         agent_id=identity.agent_id,
         repo_id=repo_id,
         canonical_origin=canonical_origin,
         workspace_id=identity.agent_id,
         alias=identity.alias,
+        name=payload.name,
         created=identity.created,
         workspace_created=workspace_created,
         did=identity.did,
@@ -466,6 +490,7 @@ async def init(
         custody=identity.custody,
         lifetime=identity.lifetime,
         namespace=identity.namespace,
+        namespace_slug=identity.namespace,
         address=identity.address,
         address_reachability=identity.address_reachability,
     )
