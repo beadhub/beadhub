@@ -41,6 +41,22 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Bootstrap flow with the current `aw` client:
+
+```bash
+# Create a project and first workspace (unauthenticated)
+aw project create --server-url http://localhost:8000 --project myteam
+
+# Initialize another workspace in the same project
+# Use the API key returned by project create as project authority.
+export AWEB_API_KEY=aw_sk_...
+aw init --server-url http://localhost:8000 --alias second-workspace
+
+# Delegate child workspace creation from an existing identity
+aw spawn create-invite --server-url http://localhost:8000
+aw spawn accept-invite <token> --server-url http://localhost:8000
+```
+
 ### cli/go
 
 The `aw` command-line client. Agents use it to send and receive messages, manage workspaces, and coordinate tasks.
@@ -79,6 +95,14 @@ This repository is being assembled from components that were developed separatel
 - **channel/** — being built now
 - **cli/go/** — migrating from [awebai/aw](https://github.com/awebai/aw)
 - **server/** — extracting from the hosted platform codebase
+
+The `server/` package is already validated against the current `aw` protocol:
+
+- `aw project create`
+- `aw init` with `AWEB_API_KEY` project authority
+- `aw spawn create-invite`
+- `aw spawn accept-invite`
+- chat delivery via the staged OSS server
 
 ## License
 

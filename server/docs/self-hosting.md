@@ -38,6 +38,38 @@ This starts:
 - `redis`
 - `aweb`
 
+## Bootstrap and workspace authority
+
+The current OSS bootstrap chain is:
+
+1. `aw project create`
+   - unauthenticated
+   - creates the project, attached namespace, and first workspace
+   - returns the API key that acts as project authority for additional workspaces
+2. `aw init`
+   - initializes another workspace in the existing project
+   - requires `AWEB_API_KEY` set to the project-authority key returned by `aw project create`
+3. `aw spawn create-invite`
+   - requires an identity-bound key from an existing workspace
+4. `aw spawn accept-invite`
+   - requires only the invite token
+
+Example:
+
+```bash
+aw project create --server-url http://localhost:8000 --project myteam
+
+export AWEB_API_KEY=aw_sk_...
+aw init --server-url http://localhost:8000 --alias second-workspace
+
+aw spawn create-invite --server-url http://localhost:8000
+aw spawn accept-invite <token> --server-url http://localhost:8000
+```
+
+Important: `aw init` intentionally reads project authority from `AWEB_API_KEY` in
+the environment. It does not use the saved identity account automatically for
+that path.
+
 ## Important environment variables
 
 - `AWEB_DATABASE_URL`
