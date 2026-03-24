@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import os
 import re
 import uuid
 from typing import Any, Optional, Protocol
@@ -64,28 +63,6 @@ def validate_agent_alias(alias: str) -> str:
     if not AGENT_ALIAS_PATTERN.match(value):
         raise ValueError("Invalid alias format")
     return value
-
-
-INTERNAL_AUTH_HEADER = "X-AWEB-Auth"
-INTERNAL_PROJECT_HEADER = "X-Project-ID"
-INTERNAL_USER_HEADER = "X-User-ID"
-INTERNAL_API_KEY_ID_HEADER = "X-API-Key"
-INTERNAL_ACTOR_ID_HEADER = "X-AWEB-Actor-ID"
-
-
-def _trust_aweb_proxy_headers() -> bool:
-    return os.getenv("AWEB_TRUST_PROXY_HEADERS", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-
-
-def _parse_internal_auth_context(request: Request):
-    from .internal_auth import parse_internal_auth_context
-
-    return parse_internal_auth_context(request)
 
 
 def parse_bearer_token(request: Request) -> Optional[str]:
@@ -178,7 +155,9 @@ async def get_project_from_auth(
     *,
     manager_name: str = "aweb",
 ) -> str:
-    internal = _parse_internal_auth_context(request) if _trust_aweb_proxy_headers() else None
+    from .internal_auth import parse_internal_auth_context
+
+    internal = parse_internal_auth_context(request)
     if internal is not None:
         return internal["project_id"]
 
@@ -198,7 +177,9 @@ async def get_actor_agent_id_from_auth(
     *,
     manager_name: str = "aweb",
 ) -> str:
-    internal = _parse_internal_auth_context(request) if _trust_aweb_proxy_headers() else None
+    from .internal_auth import parse_internal_auth_context
+
+    internal = parse_internal_auth_context(request)
     if internal is not None:
         return internal["actor_id"]
 

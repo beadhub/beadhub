@@ -5,12 +5,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 
 from aweb.auth import (
-    _parse_internal_auth_context,
-    _trust_aweb_proxy_headers,
     get_project_from_auth,
     parse_bearer_token,
     verify_bearer_token_details,
 )
+from aweb.internal_auth import _trust_aweb_proxy_headers, parse_internal_auth_context
 from aweb.deps import get_db
 
 router = APIRouter(prefix="/v1/auth", tags=["aweb-auth"])
@@ -61,7 +60,7 @@ async def introspect(request: Request, db=Depends(get_db)) -> dict:
     # and aweb sees only signed proxy headers. In that mode, ignore any Bearer token
     # that may be present (Cloud keys are not stored in aweb.api_keys).
     if _trust_aweb_proxy_headers():
-        internal = _parse_internal_auth_context(request)
+        internal = parse_internal_auth_context(request)
         if internal is not None:
             internal_result: dict = {
                 "project_id": internal["project_id"],

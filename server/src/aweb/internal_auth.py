@@ -11,6 +11,22 @@ from fastapi import HTTPException, Request
 
 logger = logging.getLogger(__name__)
 
+
+def _trust_aweb_proxy_headers() -> bool:
+    """True when the operator has explicitly opted into proxy-header auth.
+
+    This is the single gate for all proxy auth codepaths.  When False (the
+    default), signed internal headers are ignored regardless of whether the
+    signing secret happens to be configured.
+    """
+    return os.getenv("AWEB_TRUST_PROXY_HEADERS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 INTERNAL_AUTH_HEADER = "X-AWEB-Auth"
 INTERNAL_PROJECT_HEADER = "X-Project-ID"
 INTERNAL_USER_HEADER = "X-User-ID"
@@ -50,7 +66,13 @@ def parse_internal_auth_context(request: Request) -> Optional[InternalAuthContex
     (JWT/cookie/API key) and injects project scope to the core service.
 
     The core MUST treat these headers as untrusted unless `X-AWEB-Auth` validates.
+
+    Returns None immediately when ``AWEB_TRUST_PROXY_HEADERS`` is not enabled,
+    regardless of whether the signing secret is configured.
     """
+    if not _trust_aweb_proxy_headers():
+        return None
+
     internal_auth = request.headers.get(INTERNAL_AUTH_HEADER)
     if not internal_auth:
         return None
@@ -133,6 +155,10 @@ def is_public_reader(request: Request) -> bool:
 
     Cloud mode uses a signed internal auth context with principal_type="p" to
     allow read-only access for unauthenticated visitors to *public* projects.
+
+    Always returns False when ``AWEB_TRUST_PROXY_HEADERS`` is not enabled.
     """
+    if not _trust_aweb_proxy_headers():
+        return False
     internal = parse_internal_auth_context(request)
     return internal is not None and (internal.get("principal_type") or "") == "p"

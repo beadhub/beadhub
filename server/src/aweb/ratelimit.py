@@ -128,8 +128,9 @@ def _rate_config(bucket: str) -> tuple[int, int]:
 
 
 def _extract_client_ip(request: Request) -> str:
-    trust_proxy = os.getenv("AWEB_TRUST_PROXY_HEADERS", "false").lower() == "true"
-    if trust_proxy:
+    from .internal_auth import _trust_aweb_proxy_headers
+
+    if _trust_aweb_proxy_headers():
         xff = request.headers.get("x-forwarded-for")
         if xff:
             return xff.split(",")[0].strip()

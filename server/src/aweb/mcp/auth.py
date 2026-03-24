@@ -21,11 +21,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from aweb.auth import (
-    _parse_internal_auth_context,
-    _trust_aweb_proxy_headers,
-    verify_bearer_token_details,
-)
+from aweb.auth import verify_bearer_token_details
+from aweb.internal_auth import _trust_aweb_proxy_headers, parse_internal_auth_context
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +109,7 @@ class MCPAuthMiddleware:
         Raises HTTPException on invalid signatures — callers must not swallow it.
         Returns None only when no proxy headers are present at all.
         """
-        internal = _parse_internal_auth_context(request)
+        internal = parse_internal_auth_context(request)
         if internal is None:
             return None
         principal_type = (internal.get("principal_type") or "").strip()
