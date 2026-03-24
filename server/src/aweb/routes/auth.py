@@ -53,12 +53,13 @@ def _parse_json(val):
 async def introspect(request: Request, db=Depends(get_db)) -> dict:
     """Validate the caller's auth context and return the scoped project_id.
 
-    This endpoint exists primarily so aweb Cloud can validate incoming
-    Bearer tokens without owning API key verification.
+    This endpoint exists primarily so wrapper or proxy deployments can validate
+    incoming Bearer tokens without duplicating API key verification logic.
     """
-    # In wrapper/proxy deployments (aweb Cloud), auth is validated by the wrapper,
-    # and aweb sees only signed proxy headers. In that mode, ignore any Bearer token
-    # that may be present (Cloud keys are not stored in aweb.api_keys).
+    # In wrapper/proxy deployments, auth may already be validated upstream and
+    # forwarded via signed proxy headers. In that mode, ignore any Bearer token
+    # that may also be present because the wrapper's own keys are not stored in
+    # aweb.api_keys.
     if _trust_aweb_proxy_headers():
         internal = parse_internal_auth_context(request)
         if internal is not None:
