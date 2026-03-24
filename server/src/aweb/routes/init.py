@@ -173,15 +173,20 @@ async def _infer_project_slug_from_repo(
 
 async def _resolve_server_project(
     db_infra: DatabaseInfra, *, project_id: str
-) -> tuple[str | None, str]:
+) -> tuple[str | None, str, str, str | None, str | None]:
     """Look up a project in server.projects by ID.
 
-    Returns (tenant_id, slug). Raises 404 if the project doesn't exist.
+    Returns (tenant_id, slug, name, owner_type, owner_ref).
+
+    `owner_ref` is the authoritative generic ownership field in the OSS
+    contract.
+
+    Raises 404 if the project doesn't exist.
     """
     server_db = db_infra.get_manager("server")
     row = await server_db.fetch_one(
         """
-        SELECT tenant_id, slug
+        SELECT tenant_id, slug, name, owner_type, owner_ref
         FROM {{tables.projects}}
         WHERE id = $1 AND deleted_at IS NULL
         """,
@@ -190,7 +195,15 @@ async def _resolve_server_project(
     if not row:
         raise HTTPException(status_code=404, detail="project_not_found: unknown project_id")
     tid = row.get("tenant_id")
-    return (str(tid) if tid else None), row["slug"]
+    owner_type = (row.get("owner_type") or "").strip() or None
+    owner_ref = (row.get("owner_ref") or "").strip()
+    return (
+        str(tid) if tid else None,
+        row["slug"],
+        (row.get("name") or "").strip() or row["slug"],
+        owner_type,
+        owner_ref or None,
+    )
 
 
 async def _suggest_name_prefix_for_project(db_infra: DatabaseInfra, *, project_id: str) -> str:
@@ -255,30 +268,40 @@ async def init(
 
     project_slug = payload.project_slug
     if not project_slug:
-        if canonical_origin is None:
+        if payload.project_id:
+            project_slug = ""
+        elif canonical_origin is None:
             raise HTTPException(status_code=422, detail="project_slug is required")
-        inferred = await _infer_project_slug_from_repo(db_infra, canonical_origin=canonical_origin)
-        if inferred is None:
-            raise HTTPException(status_code=422, detail="project_not_found: repo not registered")
-        project_slug = inferred
+        else:
+            inferred = await _infer_project_slug_from_repo(db_infra, canonical_origin=canonical_origin)
+            if inferred is None:
+                raise HTTPException(status_code=422, detail="project_not_found: repo not registered")
+            project_slug = inferred
 
     # When project_id is provided (cloud mode), validate it exists and look up
     # tenant_id so aweb creates its project record with the correct tenant scoping.
     tenant_id: str | None = None
+    project_name: str | None = None
+    owner_type: str | None = None
+    owner_ref: str | None = None
     if payload.project_id:
-        tenant_id, authoritative_slug = await _resolve_server_project(
+        tenant_id, authoritative_slug, project_name, owner_type, owner_ref = await _resolve_server_project(
             db_infra, project_id=payload.project_id
         )
         project_slug = authoritative_slug
+    if project_name is None:
+        project_name = payload.project_name or project_slug
 
     alias = (payload.alias or "").strip() or None
     if alias is None and canonical_origin is not None:
         ensured = await ensure_project(
             db_infra,
             project_slug=project_slug,
-            project_name=payload.project_name or project_slug,
+            project_name=project_name,
             project_id=payload.project_id,
             tenant_id=tenant_id,
+            owner_type=owner_type,
+            owner_ref=owner_ref,
         )
         prefix = await _suggest_name_prefix_for_project(db_infra, project_id=ensured.project_id)
         alias = f"{prefix}-{role_to_alias_prefix(payload.role)}"
@@ -287,9 +310,11 @@ async def init(
         identity: BootstrapIdentityResult = await bootstrap_identity(
             db_infra,
             project_slug=project_slug,
-            project_name=payload.project_name or project_slug,
+            project_name=project_name,
             project_id=payload.project_id,
             tenant_id=tenant_id,
+            owner_type=owner_type,
+            owner_ref=owner_ref,
             alias=alias,
             human_name=payload.human_name or "",
             agent_type=payload.agent_type,

@@ -42,7 +42,7 @@ async def ensure_aweb_project_and_agent(
 
     project_row = await oss_db.fetch_one(
         """
-        SELECT id, owner_type, owner_user_id, owner_org_id, slug, name
+        SELECT id, tenant_id, owner_type, owner_ref, slug, name
         FROM {{tables.projects}}
         WHERE id = $1 AND deleted_at IS NULL
         """,
@@ -51,13 +51,11 @@ async def ensure_aweb_project_and_agent(
     if not project_row:
         return
 
-    tenant_id = (
-        project_row.get("owner_user_id")
-        if project_row.get("owner_type") == "user"
-        else None
-    )
-    owner_type = "org" if project_row.get("owner_type") == "organization" else "user"
-    owner_ref = str(project_row.get("owner_org_id") or project_row.get("owner_user_id") or "")
+    tenant_id = project_row.get("tenant_id")
+    raw_owner_type = (project_row.get("owner_type") or "").strip()
+    raw_owner_ref = (project_row.get("owner_ref") or "").strip()
+    owner_type = raw_owner_type or None
+    owner_ref = raw_owner_ref or None
     slug = (project_row.get("slug") or str(project_uuid)).strip()
     name = (project_row.get("name") or "").strip()
 

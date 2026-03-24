@@ -240,6 +240,7 @@ ALTER TABLE {{tables.audit_log}}
 CREATE INDEX IF NOT EXISTS idx_audit_log_agent_id ON {{tables.audit_log}}(agent_id, created_at DESC);
 ALTER TABLE {{tables.projects}}
 ADD COLUMN IF NOT EXISTS owner_type TEXT,
+ADD COLUMN IF NOT EXISTS owner_ref TEXT,
 ADD COLUMN IF NOT EXISTS owner_user_id UUID,
 ADD COLUMN IF NOT EXISTS owner_org_id UUID;
 
@@ -249,29 +250,29 @@ DROP CONSTRAINT IF EXISTS chk_projects_owner_fields;
 ALTER TABLE {{tables.projects}}
 ADD CONSTRAINT chk_projects_owner_fields
 CHECK (
-    (owner_type = 'user' AND owner_user_id IS NOT NULL AND owner_org_id IS NULL)
+    (
+        owner_type IS NULL
+        AND owner_ref IS NULL
+        AND owner_user_id IS NULL
+        AND owner_org_id IS NULL
+    )
     OR
-    (owner_type = 'organization' AND owner_org_id IS NOT NULL AND owner_user_id IS NULL)
+    (
+        owner_type = 'user'
+        AND (owner_ref IS NOT NULL OR owner_user_id IS NOT NULL)
+        AND owner_org_id IS NULL
+    )
+    OR
+    (
+        owner_type = 'organization'
+        AND (owner_ref IS NOT NULL OR owner_org_id IS NOT NULL)
+        AND owner_user_id IS NULL
+    )
 );
 
-DROP INDEX IF EXISTS idx_projects_slug_no_tenant;
-DROP INDEX IF EXISTS idx_projects_slug_with_tenant;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug_with_user_owner
-    ON {{tables.projects}}(owner_user_id, slug)
-    WHERE owner_type = 'user' AND owner_user_id IS NOT NULL AND deleted_at IS NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug_with_org_owner
-    ON {{tables.projects}}(owner_org_id, slug)
-    WHERE owner_type = 'organization' AND owner_org_id IS NOT NULL AND deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_projects_owner_user_active
-    ON {{tables.projects}}(owner_user_id, created_at DESC)
-    WHERE owner_type = 'user' AND deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_projects_owner_org_active
-    ON {{tables.projects}}(owner_org_id, created_at DESC)
-    WHERE owner_type = 'organization' AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_owner_scope
+    ON {{tables.projects}}(owner_type, owner_ref, slug)
+    WHERE owner_ref IS NOT NULL AND deleted_at IS NULL;
 CREATE TABLE IF NOT EXISTS {{tables.task_counters}} (
     project_id UUID PRIMARY KEY REFERENCES {{tables.projects}}(id) ON DELETE CASCADE,
     next_number INTEGER NOT NULL DEFAULT 1

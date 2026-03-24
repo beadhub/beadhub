@@ -28,6 +28,7 @@ from aweb.awid.did import (
     stable_id_from_did_key,
 )
 from aweb.hooks import fire_mutation_hook
+from aweb.internal_auth import INTERNAL_PROJECT_ROLE_HEADER, parse_internal_auth_context
 
 from ..config import get_settings
 from ..db import DatabaseInfra, get_db_infra
@@ -61,29 +62,34 @@ async def _require_human_owner_or_admin_for_lifecycle_action(
     except ValueError:
         raise HTTPException(status_code=403, detail=f"Only human project owner or admin can {action}")
 
+    internal_ctx = parse_internal_auth_context(request)
+    trusted_project_role = (request.headers.get(INTERNAL_PROJECT_ROLE_HEADER) or "").strip().lower()
+    if (
+        internal_ctx is not None
+        and internal_ctx.get("principal_type") == "u"
+        and internal_ctx.get("principal_id") == str(user_uuid)
+        and internal_ctx.get("project_id") == str(project_uuid)
+        and trusted_project_role in {"owner", "admin"}
+    ):
+        return
+
     row = await server_db.fetch_one(
         """
-        SELECT p.id
+        SELECT p.id,
+               p.owner_type,
+               p.owner_ref
         FROM {{tables.projects}} p
-        LEFT JOIN {{tables.aweb_cloud.project_members}} pm
-          ON pm.project_id = p.id AND pm.user_id = $2
-        LEFT JOIN {{tables.aweb_cloud.organization_members}} om
-          ON om.organization_id = p.owner_org_id
-         AND om.user_id = $2
-         AND om.role IN ('owner', 'admin')
         WHERE p.id = $1
           AND p.deleted_at IS NULL
-          AND (
-                (p.owner_type = 'user' AND p.owner_user_id = $2)
-                OR om.user_id IS NOT NULL
-                OR pm.role = 'admin'
-              )
         """,
         project_uuid,
-        user_uuid,
     )
     if row is None:
         raise HTTPException(status_code=403, detail=f"Only human project owner or admin can {action}")
+    owner_ref = (row.get("owner_ref") or "").strip()
+    if row.get("owner_type") == "user" and owner_ref == str(user_uuid):
+        return
+    raise HTTPException(status_code=403, detail=f"Only human project owner or admin can {action}")
 
 
 def _validate_workspace_id_field(v: str) -> str:

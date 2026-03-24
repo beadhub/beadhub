@@ -15,10 +15,10 @@ async def ensure_server_project_row(
 ) -> None:
     """Ensure a coordination project row exists without dropping owner metadata.
 
-    The hosted wrapper owns project creation and explicit owner fields in
-    `server.projects`. Coordination routes should reuse that row when it already
-    exists instead of re-inserting a partial copy. When bootstrapping a fresh
-    row locally, we can only recover personal ownership from `aweb.projects`.
+    The server schema may be used in pure OSS mode or embedded inside the
+    hosted wrapper. The OSS ownership model is generic: `owner_type` plus
+    `owner_ref` when ownership metadata exists. Standalone bootstrap must
+    continue to work even when no tenant or cloud-specific owner fields exist.
     """
 
     project_uuid = UUID(project_id)
@@ -47,7 +47,7 @@ async def ensure_server_project_row(
 
     aweb_project = await aweb_db.fetch_one(
         """
-        SELECT tenant_id, slug, name
+        SELECT tenant_id, slug, name, owner_type, owner_ref
         FROM {{tables.projects}}
         WHERE project_id = $1 AND deleted_at IS NULL
         """,
@@ -59,22 +59,22 @@ async def ensure_server_project_row(
             detail="Project metadata missing for coordination bootstrap",
         )
 
-    owner_user_id = aweb_project.get("tenant_id")
-    if owner_user_id is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Project owner metadata missing for coordination bootstrap",
-        )
-
+    owner_type = (aweb_project.get("owner_type") or "").strip() or None
+    owner_ref = (aweb_project.get("owner_ref") or "").strip() or None
+    tenant_id = aweb_project.get("tenant_id")
     await server_db.execute(
         """
         INSERT INTO {{tables.projects}}
-            (id, tenant_id, owner_type, owner_user_id, owner_org_id, slug, name, deleted_at)
+            (id, tenant_id, owner_type, owner_ref, owner_user_id, owner_org_id, slug, name, deleted_at)
         VALUES
-            ($1, $2, 'user', $2, NULL, $3, $4, NULL)
+            ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
         """,
         project_uuid,
-        owner_user_id,
+        tenant_id,
+        owner_type,
+        owner_ref,
+        None,
+        None,
         (project_slug or aweb_project.get("slug") or "").strip() or str(project_uuid),
         (project_name or aweb_project.get("name") or "").strip() or None,
     )
