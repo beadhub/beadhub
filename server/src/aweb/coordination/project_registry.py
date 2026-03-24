@@ -65,16 +65,14 @@ async def ensure_server_project_row(
     await server_db.execute(
         """
         INSERT INTO {{tables.projects}}
-            (id, tenant_id, owner_type, owner_ref, owner_user_id, owner_org_id, slug, name, deleted_at)
+            (id, tenant_id, owner_type, owner_ref, slug, name, deleted_at)
         VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
+            ($1, $2, $3, $4, $5, $6, NULL)
         """,
         project_uuid,
         tenant_id,
         owner_type,
         owner_ref,
-        None,
-        None,
         (project_slug or aweb_project.get("slug") or "").strip() or str(project_uuid),
         (project_name or aweb_project.get("name") or "").strip() or None,
     )
