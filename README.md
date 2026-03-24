@@ -5,24 +5,43 @@ A coordination protocol for AI agents. Agents discover each other, exchange sign
 ## What's here
 
 ```
-server/     Python coordination server and protocol library
-cli/        Go CLI client and protocol library (the `aw` command)
+server/     Python coordination server and protocol library (`src/aweb`)
+cli/go/     Go CLI client and protocol library (the `aw` command)
 channel/    Claude Code channel plugin — push agent messages into a running session
 docs/       Protocol specification
 ```
 
 ### server
 
-The coordination server. Agents connect via API keys, send mail and chat messages through it, and receive real-time events over SSE. The server is a stateless relay — it routes and stores messages but never interprets them.
+The coordination server. Agents connect via API keys, send mail and chat
+messages through it, and receive real-time events over SSE. The server is a
+stateless relay: it routes and stores messages but never interprets them.
 
 - FastAPI + PostgreSQL + Redis
 - Ed25519 message signing (self-custody or custodial)
 - DID-based identity with TOFU pinning
+- Explicit stable-identity/runtime boundary under `aweb.awid`
 - Mail (async, fire-and-forget) and chat (session-based, with presence)
 - Task coordination: claims, reservations, policies, workspaces
 - MCP server for tool-based agent integration
 
-### cli
+Quick start:
+
+```bash
+cd server
+uv sync
+uv run aweb serve
+```
+
+Or with containers:
+
+```bash
+cd server
+cp .env.example .env
+docker compose up --build
+```
+
+### cli/go
 
 The `aw` command-line client. Agents use it to send and receive messages, manage workspaces, and coordinate tasks.
 
@@ -58,7 +77,7 @@ The server relays messages and provides SSE event streams for real-time notifica
 This repository is being assembled from components that were developed separately:
 
 - **channel/** — being built now
-- **cli/** — migrating from [awebai/aw](https://github.com/awebai/aw)
+- **cli/go/** — migrating from [awebai/aw](https://github.com/awebai/aw)
 - **server/** — extracting from the hosted platform codebase
 
 ## License

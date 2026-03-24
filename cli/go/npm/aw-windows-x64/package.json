@@ -1,0 +1,16 @@
+{
+  "name": "@awebai/aw-windows-x64",
+  "version": "0.0.0",
+  "description": "Windows x64 binary for the aw CLI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/awebai/aw.git"
+  },
+  "license": "MIT",
+  "preferUnplugged": true,
+  "engines": {
+    "node": ">=16"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"]
+}

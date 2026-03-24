@@ -1,0 +1,542 @@
+package awid
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// signedFields holds the identity fields attached to outgoing messages
+// when the client has a signing key.
+type signedFields struct {
+	FromDID       string
+	ToDID         string
+	FromStableID  string
+	Signature     string
+	SigningKeyID  string
+	Timestamp     string
+	MessageID     string
+	SignedPayload string
+}
+
+// signEnvelope signs a MessageEnvelope and returns the fields to embed
+// in the request. When the client has no signing key (legacy/custodial),
+// returns a zero signedFields. Callers stamp the returned fields onto
+// the request struct before posting.
+func (c *Client) signEnvelope(ctx context.Context, env *MessageEnvelope) (signedFields, error) {
+	if c.signingKey == nil {
+		return signedFields{}, nil
+	}
+	if strings.TrimSpace(env.From) == "" {
+		env.From = c.address
+	}
+	env.FromDID = c.did
+	env.FromStableID = c.stableID
+	env.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	msgID, err := generateUUID4()
+	if err != nil {
+		return signedFields{}, err
+	}
+	env.MessageID = msgID
+
+	// Resolve recipient DID for to_did binding (mail only).
+	if env.Type == "mail" && c.resolver != nil && env.To != "" && env.ToDID == "" {
+		if identity, err := c.resolver.Resolve(ctx, env.To); err == nil && identity.DID != "" {
+			env.ToDID = identity.DID
+		}
+	}
+
+	sig, err := SignMessage(c.signingKey, env)
+	if err != nil {
+		return signedFields{}, fmt.Errorf("sign message: %w", err)
+	}
+	return signedFields{
+		FromDID:       c.did,
+		ToDID:         env.ToDID,
+		FromStableID:  c.stableID,
+		Signature:     sig,
+		SigningKeyID:  c.did,
+		Timestamp:     env.Timestamp,
+		MessageID:     env.MessageID,
+		SignedPayload: CanonicalJSON(env),
+	}, nil
+}
+
+const (
+	// DefaultTimeout is the default HTTP timeout used by the client.
+	DefaultTimeout = 10 * time.Second
+
+	MaxResponseSize = 10 * 1024 * 1024
+)
+
+// agentMeta holds cached metadata about a resolved agent.
+type agentMeta struct {
+	Lifetime string // "persistent" or "ephemeral"
+	Custody  string // "self" or "custodial"
+}
+
+// Client is an aweb HTTP client.
+//
+// It is designed to be easy to extract into a standalone repo and to be used by:
+// - the `aw` CLI
+// - higher-level coordination products built on the same transport
+type Client struct {
+	baseURL             string
+	httpClient          *http.Client
+	sseClient           *http.Client // No response timeout; SSE connections are long-lived.
+	apiKey              string
+	signingKey          ed25519.PrivateKey // nil for legacy/custodial
+	did                 string             // empty for legacy/custodial
+	address             string             // namespace/alias, used in signed envelopes
+	projectSlug         string             // current local project slug, used for project~alias addressing
+	stableID            string             // did:aw:..., set on outgoing signed envelopes as from_stable_id
+	resolver            IdentityResolver   // optional; resolves recipient DID for to_did binding
+	pinStore            *PinStore          // optional; TOFU pin store for sender identity verification
+	pinStorePath        string             // disk path for persisting pin store
+	metaCache           sync.Map           // address → *agentMeta; cached resolver results
+	latestClientVersion atomic.Value       // last seen X-Latest-Client-Version header (string)
+}
+
+// New creates a new client.
+func New(baseURL string) (*Client, error) {
+	if _, err := url.Parse(baseURL); err != nil {
+		return nil, err
+	}
+	return &Client{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			Timeout: DefaultTimeout,
+		},
+		sseClient: &http.Client{},
+	}, nil
+}
+
+// NewWithAPIKey creates a new client authenticated with a project API key.
+// The client operates in legacy/custodial mode (no signing).
+func NewWithAPIKey(baseURL, apiKey string) (*Client, error) {
+	c, err := New(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	c.apiKey = apiKey
+	return c, nil
+}
+
+// NewWithIdentity creates an authenticated client with signing capability.
+func NewWithIdentity(baseURL, apiKey string, signingKey ed25519.PrivateKey, did string) (*Client, error) {
+	if signingKey == nil {
+		return nil, fmt.Errorf("signingKey must not be nil")
+	}
+	if did == "" {
+		return nil, fmt.Errorf("did must not be empty")
+	}
+	expected := ComputeDIDKey(signingKey.Public().(ed25519.PublicKey))
+	if did != expected {
+		return nil, fmt.Errorf("did does not match signingKey")
+	}
+	c, err := NewWithAPIKey(baseURL, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	c.signingKey = signingKey
+	c.did = did
+	return c, nil
+}
+
+// SetHTTPClient replaces the client's HTTP client used for normal API calls.
+// A nil client is ignored.
+func (c *Client) SetHTTPClient(httpClient *http.Client) {
+	if httpClient == nil {
+		return
+	}
+	c.httpClient = httpClient
+}
+
+// SetSSEClient replaces the client's HTTP client used for SSE requests.
+// A nil client is ignored.
+func (c *Client) SetSSEClient(httpClient *http.Client) {
+	if httpClient == nil {
+		return
+	}
+	c.sseClient = httpClient
+}
+
+// SigningKey returns the client's signing key, or nil for legacy/custodial clients.
+func (c *Client) SigningKey() ed25519.PrivateKey { return c.signingKey }
+
+// DID returns the client's DID, or empty for legacy/custodial clients.
+func (c *Client) DID() string { return c.did }
+
+// SetAddress sets the client's agent address (namespace/alias) for use in
+// signed message envelopes.
+func (c *Client) SetAddress(address string) { c.address = address }
+
+// SetProjectSlug sets the current project slug for local project~alias addressing.
+func (c *Client) SetProjectSlug(projectSlug string) { c.projectSlug = strings.TrimSpace(projectSlug) }
+
+// SetStableID sets the client's stable identifier (did:aw:...) for use
+// as from_stable_id in outgoing signed envelopes.
+func (c *Client) SetStableID(id string) { c.stableID = id }
+
+// SetResolver sets the identity resolver used to resolve recipient DIDs
+// for to_did binding in signed envelopes.
+func (c *Client) SetResolver(r IdentityResolver) { c.resolver = r }
+
+// SetPinStore sets the TOFU pin store for sender identity verification.
+// If path is non-empty, the store is persisted to disk after updates.
+func (c *Client) SetPinStore(ps *PinStore, path string) {
+	c.pinStore = ps
+	c.pinStorePath = path
+}
+
+// LatestClientVersion returns the most recent X-Latest-Client-Version header
+// value seen in any API response, or empty if no header was received.
+func (c *Client) LatestClientVersion() string {
+	if v, ok := c.latestClientVersion.Load().(string); ok {
+		return v
+	}
+	return ""
+}
+
+// resolveAgentMeta returns cached lifetime/custody metadata for a sender address.
+// On first contact, resolves via the client's IdentityResolver and caches the result.
+// Returns defaults (persistent, self) if no resolver is set or resolution fails.
+func (c *Client) resolveAgentMeta(ctx context.Context, address string) *agentMeta {
+	if address == "" {
+		return &agentMeta{Lifetime: LifetimePersistent, Custody: CustodySelf}
+	}
+	if v, ok := c.metaCache.Load(address); ok {
+		return v.(*agentMeta)
+	}
+	if c.resolver != nil {
+		if identity, err := c.resolver.Resolve(ctx, address); err == nil {
+			meta := &agentMeta{Lifetime: LifetimePersistent, Custody: CustodySelf}
+			if identity.Lifetime != "" {
+				meta.Lifetime = identity.Lifetime
+			}
+			if identity.Custody != "" {
+				meta.Custody = identity.Custody
+			}
+			c.metaCache.Store(address, meta)
+			return meta
+		}
+	}
+	// Resolver absent or failed: return defaults but don't cache,
+	// so a transient failure retries on the next message.
+	return &agentMeta{Lifetime: LifetimePersistent, Custody: CustodySelf}
+}
+
+// CheckTOFUPin checks a verified message against the TOFU pin store.
+// On first contact, creates a pin. On subsequent contact with matching DID,
+// updates last_seen. On DID mismatch, checks for a valid rotation announcement
+// before returning IdentityMismatch.
+// Returns the status unchanged if no pin store is set, the message is not
+// verified, or from_did/from_alias is empty.
+// Uses the resolver to determine the sender's lifetime (ephemeral agents
+// skip pinning) and custody (custodial agents return VerifiedCustodial).
+//
+// When fromStableID is present, pins are keyed by stable_id instead of did:key.
+// The pin stores the last observed did:key for that stable identity, so a
+// stable_id can survive key rotation while still enforcing continuity.
+func (c *Client) CheckTOFUPin(ctx context.Context, status VerificationStatus, fromAlias, fromDID, fromStableID string, ra *RotationAnnouncement, repl *ReplacementAnnouncement) VerificationStatus {
+	if c.pinStore == nil || (status != Verified && status != VerifiedCustodial) || fromDID == "" || fromAlias == "" {
+		return status
+	}
+
+	// Validate stable_id prefix before using it as a pin key.
+	if fromStableID != "" && !strings.HasPrefix(fromStableID, "did:aw:") {
+		fromStableID = "" // Treat invalid prefix as absent.
+	}
+
+	meta := c.resolveAgentMeta(ctx, fromAlias)
+
+	if meta.Custody == CustodyCustodial && status == Verified {
+		status = VerifiedCustodial
+	}
+
+	c.pinStore.mu.Lock()
+	defer c.pinStore.mu.Unlock()
+
+	pinKey := fromDID
+	if fromStableID != "" {
+		pinKey = fromStableID
+
+		// Upgrade-on-first-sight: if we have a did:key pin for this address
+		// and the did:key matches, migrate to stable_id pin before the check.
+		if existingDID, ok := c.pinStore.Addresses[fromAlias]; ok && existingDID == fromDID {
+			if existingPin, hasDIDPin := c.pinStore.Pins[fromDID]; hasDIDPin {
+				delete(c.pinStore.Pins, fromDID)
+				existingPin.StableID = fromStableID
+				c.pinStore.Pins[fromStableID] = existingPin
+				c.pinStore.Addresses[fromAlias] = fromStableID
+			}
+		}
+	}
+
+	pinResult := c.pinStore.CheckPin(fromAlias, pinKey, meta.Lifetime)
+	switch pinResult {
+	case PinNew:
+		c.pinStore.StorePin(pinKey, fromAlias, "", "")
+		if fromStableID != "" {
+			c.pinStore.Pins[pinKey].StableID = fromStableID
+			c.pinStore.Pins[pinKey].DIDKey = fromDID
+		}
+		c.savePinStore()
+	case PinOK:
+		if fromStableID != "" {
+			if pin, ok := c.pinStore.Pins[pinKey]; ok && strings.TrimSpace(pin.DIDKey) != "" && pin.DIDKey != fromDID {
+				if (ra == nil || !c.verifyRotationAnnouncement(ra, fromDID, pin.DIDKey)) &&
+					(repl == nil || !c.verifyReplacementAnnouncement(ctx, fromAlias, repl, fromDID, pin.DIDKey)) {
+					return IdentityMismatch
+				}
+			}
+		}
+		c.pinStore.StorePin(pinKey, fromAlias, "", "")
+		if fromStableID != "" {
+			c.pinStore.Pins[pinKey].StableID = fromStableID
+			c.pinStore.Pins[pinKey].DIDKey = fromDID
+		}
+		c.savePinStore()
+	case PinMismatch:
+		pinnedKey := c.pinStore.Addresses[fromAlias]
+		if fromStableID != "" && pinnedKey == fromStableID {
+			if pin, ok := c.pinStore.Pins[pinnedKey]; ok {
+				if strings.TrimSpace(pin.DIDKey) != "" && pin.DIDKey == fromDID {
+					c.pinStore.StorePin(pinnedKey, fromAlias, "", "")
+					c.pinStore.Pins[pinnedKey].StableID = fromStableID
+					c.savePinStore()
+					return status
+				}
+				if strings.TrimSpace(pin.DIDKey) != "" &&
+					((ra != nil && c.verifyRotationAnnouncement(ra, fromDID, pin.DIDKey)) ||
+						(repl != nil && c.verifyReplacementAnnouncement(ctx, fromAlias, repl, fromDID, pin.DIDKey))) {
+					c.pinStore.StorePin(pinnedKey, fromAlias, "", "")
+					c.pinStore.Pins[pinnedKey].StableID = fromStableID
+					c.pinStore.Pins[pinnedKey].DIDKey = fromDID
+					c.savePinStore()
+					return status
+				}
+			}
+		}
+		if (ra != nil && c.verifyRotationAnnouncement(ra, fromDID, pinnedKey)) ||
+			(repl != nil && c.verifyReplacementAnnouncement(ctx, fromAlias, repl, fromDID, pinnedKey)) {
+			delete(c.pinStore.Pins, pinnedKey)
+			c.pinStore.StorePin(pinKey, fromAlias, "", "")
+			if fromStableID != "" {
+				c.pinStore.Pins[pinKey].StableID = fromStableID
+				c.pinStore.Pins[pinKey].DIDKey = fromDID
+			}
+			c.savePinStore()
+			return status
+		}
+		return IdentityMismatch
+	case PinSkipped:
+		// Ephemeral agent — no pin check.
+	}
+	return status
+}
+
+// verifyRotationAnnouncement checks that a rotation announcement is valid:
+// the old key signed the transition from old_did to new_did, the message's
+// from_did matches the announcement's new_did, and the announcement's old_did
+// matches the currently pinned DID.
+func (c *Client) verifyRotationAnnouncement(ra *RotationAnnouncement, messageDID, pinnedDID string) bool {
+	if ra.OldDID == "" || ra.NewDID == "" || ra.OldKeySignature == "" || ra.Timestamp == "" {
+		return false
+	}
+	if !isTimestampFresh(ra.Timestamp) {
+		return false
+	}
+	if ra.NewDID != messageDID {
+		return false
+	}
+	if ra.OldDID != pinnedDID {
+		return false
+	}
+	oldPub, err := ExtractPublicKey(ra.OldDID)
+	if err != nil {
+		return false
+	}
+	ok, err := VerifyRotationSignature(oldPub, ra.OldDID, ra.NewDID, ra.Timestamp, ra.OldKeySignature)
+	return err == nil && ok
+}
+
+func (c *Client) verifyReplacementAnnouncement(ctx context.Context, address string, repl *ReplacementAnnouncement, messageDID, pinnedDID string) bool {
+	if repl == nil {
+		return false
+	}
+	if repl.Address == "" || repl.OldDID == "" || repl.NewDID == "" || repl.ControllerDID == "" || repl.Timestamp == "" || repl.ControllerSignature == "" {
+		return false
+	}
+	if !isTimestampFresh(repl.Timestamp) {
+		return false
+	}
+	if repl.Address != address || repl.NewDID != messageDID || repl.OldDID != pinnedDID {
+		return false
+	}
+	if c.resolver == nil {
+		return false
+	}
+	identity, err := c.resolver.Resolve(ctx, address)
+	if err != nil {
+		return false
+	}
+	if identity.ControllerDID == "" || identity.ControllerDID != repl.ControllerDID {
+		return false
+	}
+	controllerPub, err := ExtractPublicKey(repl.ControllerDID)
+	if err != nil {
+		return false
+	}
+	ok, err := VerifyReplacementSignature(controllerPub, repl.Address, repl.ControllerDID, repl.OldDID, repl.NewDID, repl.Timestamp, repl.ControllerSignature)
+	return err == nil && ok
+}
+
+func (c *Client) savePinStore() {
+	if c.pinStorePath != "" {
+		// Best effort: atomic write via temp+rename. A failed save means
+		// the next process loads a stale store and may re-pin.
+		_ = c.pinStore.Save(c.pinStorePath)
+	}
+}
+
+// checkRecipientBinding downgrades a Verified status to IdentityMismatch
+// if the message's to_did doesn't match the client's own DID.
+// Returns the status unchanged if to_did is empty, the client has no DID,
+// or the DIDs match.
+func (c *Client) checkRecipientBinding(status VerificationStatus, toDID string) VerificationStatus {
+	if status != Verified || toDID == "" || c.did == "" {
+		return status
+	}
+	if toDID != c.did {
+		return IdentityMismatch
+	}
+	return status
+}
+
+// APIError represents an HTTP error from the aweb API.
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("aweb: http %d", e.StatusCode)
+	}
+	return fmt.Sprintf("aweb: http %d: %s", e.StatusCode, e.Body)
+}
+
+// HTTPStatusCode returns the HTTP status code for API errors.
+func HTTPStatusCode(err error) (int, bool) {
+	var e *APIError
+	if !errors.As(err, &e) {
+		return 0, false
+	}
+	return e.StatusCode, true
+}
+
+// HTTPErrorBody returns the response body for API errors.
+func HTTPErrorBody(err error) (string, bool) {
+	var e *APIError
+	if !errors.As(err, &e) {
+		return "", false
+	}
+	return e.Body, true
+}
+
+// Get performs an HTTP GET request and decodes the JSON response.
+func (c *Client) Get(ctx context.Context, path string, out any) error {
+	return c.Do(ctx, http.MethodGet, path, nil, out)
+}
+
+// Post performs an HTTP POST request with a JSON body and decodes the JSON response.
+func (c *Client) Post(ctx context.Context, path string, in any, out any) error {
+	return c.Do(ctx, http.MethodPost, path, in, out)
+}
+
+// Patch performs an HTTP PATCH request with a JSON body and decodes the JSON response.
+func (c *Client) Patch(ctx context.Context, path string, in any, out any) error {
+	return c.Do(ctx, http.MethodPatch, path, in, out)
+}
+
+// Put performs an HTTP PUT request with a JSON body and decodes the JSON response.
+func (c *Client) Put(ctx context.Context, path string, in any, out any) error {
+	return c.Do(ctx, http.MethodPut, path, in, out)
+}
+
+// Delete performs an HTTP DELETE request.
+func (c *Client) Delete(ctx context.Context, path string) error {
+	return c.Do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// Do performs an HTTP request with optional JSON body and response decoding.
+func (c *Client) Do(ctx context.Context, method, path string, in any, out any) error {
+	resp, err := c.DoRaw(ctx, method, path, "application/json", in)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	limited := io.LimitReader(resp.Body, MaxResponseSize)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &APIError{StatusCode: resp.StatusCode, Body: string(data)}
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(data, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DoRaw performs an HTTP request and returns the raw response.
+func (c *Client) DoRaw(ctx context.Context, method, path, accept string, in any) (*http.Response, error) {
+	var body io.Reader
+	if in != nil {
+		data, err := json.Marshal(in)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(data)
+	}
+
+	if strings.HasSuffix(c.baseURL, "/api") && strings.HasPrefix(path, "/api/") {
+		path = strings.TrimPrefix(path, "/api")
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Accept", accept)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if v := resp.Header.Get("X-Latest-Client-Version"); v != "" {
+		c.latestClientVersion.Store(v)
+	}
+	return resp, nil
+}

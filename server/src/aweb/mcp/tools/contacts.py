@@ -1,0 +1,53 @@
+"""MCP tools for contact management."""
+
+from __future__ import annotations
+
+import json
+from uuid import UUID
+
+from aweb.messaging.contacts import add_contact, list_contacts, remove_contact
+from aweb.mcp.auth import get_auth
+from aweb.service_errors import ServiceError
+
+
+async def contacts_list(db_infra) -> str:
+    """List all contacts in the project."""
+    auth = get_auth()
+    try:
+        contacts = await list_contacts(db_infra, project_id=auth.project_id)
+    except ServiceError as exc:
+        return json.dumps({"error": exc.detail})
+    return json.dumps({"contacts": contacts})
+
+
+async def contacts_add(db_infra, *, contact_address: str, label: str = "") -> str:
+    """Add a contact to the project."""
+    auth = get_auth()
+    try:
+        result = await add_contact(
+            db_infra,
+            project_id=auth.project_id,
+            contact_address=contact_address,
+            label=label or None,
+        )
+    except ServiceError as exc:
+        return json.dumps({"error": exc.detail})
+
+    result["status"] = "added"
+    return json.dumps(result)
+
+
+async def contacts_remove(db_infra, *, contact_id: str) -> str:
+    """Remove a contact from the project."""
+    auth = get_auth()
+    try:
+        await remove_contact(db_infra, project_id=auth.project_id, contact_id=contact_id)
+    except ServiceError as exc:
+        return json.dumps({"error": exc.detail})
+
+    # remove_contact already validated the UUID; normalize for the response.
+    try:
+        normalized_id = str(UUID(contact_id.strip()))
+    except Exception:
+        normalized_id = contact_id.strip()
+    return json.dumps({"contact_id": normalized_id, "status": "removed"})

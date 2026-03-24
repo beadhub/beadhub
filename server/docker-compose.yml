@@ -1,0 +1,60 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aweb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-aweb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aweb} -d ${POSTGRES_DB:-aweb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  aweb:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "${AWEB_PORT:-8000}:8000"
+    environment:
+      AWEB_DATABASE_URL: postgresql://${POSTGRES_USER:-aweb}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aweb}
+      AWEB_REDIS_URL: redis://redis:6379/0
+      AWEB_HOST: 0.0.0.0
+      AWEB_PORT: 8000
+      AWEB_LOG_JSON: ${AWEB_LOG_JSON:-true}
+      AWEB_CUSTODY_KEY: ${AWEB_CUSTODY_KEY:-}
+      AWEB_MANAGED_DOMAIN: ${AWEB_MANAGED_DOMAIN:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:

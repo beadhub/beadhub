@@ -2,3 +2,21 @@ node_modules/
 dist/
 .cache/
 *.tgz
+.DS_Store
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+*.py[cod]
+*.egg-info/
+
+# server/
+server/.venv/
+server/build/
+server/dist/
+server/.pytest_cache/
+server/src/*.egg-info/
+
+# channel/
+channel/node_modules/

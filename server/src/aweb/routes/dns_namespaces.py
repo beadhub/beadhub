@@ -1,0 +1,309 @@
+"""DNS-backed namespace registration and management."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
+
+from aweb.deps import DomainVerifier, get_db, get_domain_verifier
+from aweb.dns_verify import DnsVerificationError
+from aweb.ratelimit import rate_limit_dep
+from aweb.awid.signing import canonical_json_bytes, verify_did_key_signature
+
+router = APIRouter(prefix="/v1/namespaces", tags=["namespaces"])
+
+_AUTH_TIMESTAMP_SKEW_SECONDS = 300
+_MAX_DOMAIN_LENGTH = 256
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_didkey_auth(authorization: str | None) -> tuple[str, str]:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    parts = authorization.split(" ")
+    if len(parts) != 3 or parts[0] != "DIDKey":
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization must be: DIDKey <did:key> <signature>",
+        )
+    return parts[1], parts[2]
+
+
+def _require_timestamp(request: Request) -> str:
+    value = request.headers.get("X-AWEB-Timestamp")
+    if not value:
+        raise HTTPException(status_code=401, detail="Missing X-AWEB-Timestamp header")
+    return value
+
+
+def _enforce_timestamp_skew(ts: str) -> None:
+    try:
+        ts = ts.strip()
+        if ts.endswith("Z"):
+            ts = ts[:-1] + "+00:00"
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            raise HTTPException(status_code=401, detail="Timestamp must include timezone")
+        dt = dt.astimezone(timezone.utc)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Malformed timestamp")
+    delta = abs((datetime.now(timezone.utc) - dt).total_seconds())
+    if delta > _AUTH_TIMESTAMP_SKEW_SECONDS:
+        raise HTTPException(status_code=401, detail="Timestamp outside allowed skew window")
+
+
+def _verify_controller_signature(
+    request: Request,
+    *,
+    domain: str,
+    operation: str,
+) -> str:
+    """Parse auth headers, verify signature, return the signing did:key."""
+    did_key, sig = _parse_didkey_auth(request.headers.get("Authorization"))
+    timestamp = _require_timestamp(request)
+    _enforce_timestamp_skew(timestamp)
+
+    payload = canonical_json_bytes({
+        "domain": domain,
+        "operation": operation,
+        "timestamp": timestamp,
+    })
+
+    try:
+        verify_did_key_signature(did_key=did_key, payload=payload, signature_b64=sig)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    return did_key
+
+
+def _validate_domain(domain: str) -> str:
+    """Validate and canonicalize a domain string."""
+    domain = domain.lower().rstrip(".")
+    if not domain or len(domain) > _MAX_DOMAIN_LENGTH:
+        raise HTTPException(status_code=400, detail="Invalid domain")
+    return domain
+
+
+# ---------------------------------------------------------------------------
+# Request/response models
+# ---------------------------------------------------------------------------
+
+
+class NamespaceRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    domain: str = Field(..., min_length=1, max_length=256)
+
+
+class NamespaceResponse(BaseModel):
+    namespace_id: str
+    domain: str
+    controller_did: str | None = None
+    verification_status: str
+    last_verified_at: Optional[str] = None
+    created_at: str
+
+
+class NamespaceListResponse(BaseModel):
+    namespaces: list[NamespaceResponse]
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "",
+    response_model=NamespaceResponse,
+    dependencies=[Depends(rate_limit_dep("did_register"))],
+)
+async def register_namespace(
+    request: Request,
+    body: NamespaceRegisterRequest,
+    db_infra=Depends(get_db),
+    verify_domain: DomainVerifier = Depends(get_domain_verifier),
+) -> NamespaceResponse:
+    """Register a DNS-backed namespace.
+
+    The caller must prove control of the domain by signing the request
+    with the controller key named in the _aweb.<domain> DNS TXT record.
+    """
+    db = db_infra.get_manager("aweb")
+    domain = _validate_domain(body.domain)
+
+    # Verify the caller's DIDKey signature
+    caller_did = _verify_controller_signature(request, domain=domain, operation="register")
+
+    # Verify DNS TXT record
+    try:
+        dns_controller = await verify_domain(domain)
+    except DnsVerificationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # DNS controller must match the signing key
+    if dns_controller != caller_did:
+        raise HTTPException(
+            status_code=403,
+            detail="Signing key does not match DNS controller",
+        )
+
+    # Transactional: check-then-insert to prevent duplicate races
+    async with db.transaction() as tx:
+        existing = await tx.fetch_one(
+            """
+            SELECT namespace_id, domain, controller_did, verification_status,
+                   last_verified_at, created_at
+            FROM {{tables.dns_namespaces}}
+            WHERE domain = $1 AND deleted_at IS NULL
+            """,
+            domain,
+        )
+
+        if existing is not None:
+            return _namespace_response(existing)
+
+        ns_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        await tx.execute(
+            """
+            INSERT INTO {{tables.dns_namespaces}}
+                (namespace_id, domain, controller_did, verification_status, last_verified_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            ns_id,
+            domain,
+            caller_did,
+            "verified",
+            now,
+            now,
+        )
+
+    return NamespaceResponse(
+        namespace_id=str(ns_id),
+        domain=domain,
+        controller_did=caller_did,
+        verification_status="verified",
+        last_verified_at=now.isoformat(),
+        created_at=now.isoformat(),
+    )
+
+
+@router.get("/{domain}", response_model=NamespaceResponse)
+async def get_namespace(domain: str, db_infra=Depends(get_db)) -> NamespaceResponse:
+    """Query a namespace's status by domain."""
+    db = db_infra.get_manager("aweb")
+    domain = _validate_domain(domain)
+    row = await db.fetch_one(
+        """
+        SELECT namespace_id, domain, controller_did, verification_status,
+               last_verified_at, created_at
+        FROM {{tables.dns_namespaces}}
+        WHERE domain = $1 AND deleted_at IS NULL
+        """,
+        domain,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Namespace not found")
+    return _namespace_response(row)
+
+
+@router.get("", response_model=NamespaceListResponse)
+async def list_namespaces(
+    controller_did: Optional[str] = Query(default=None),
+    db_infra=Depends(get_db),
+) -> NamespaceListResponse:
+    """List registered namespaces, optionally filtered by controller DID."""
+    db = db_infra.get_manager("aweb")
+    if controller_did:
+        rows = await db.fetch_all(
+            """
+            SELECT namespace_id, domain, controller_did, verification_status,
+                   last_verified_at, created_at
+            FROM {{tables.dns_namespaces}}
+            WHERE controller_did = $1 AND deleted_at IS NULL
+            ORDER BY created_at
+            """,
+            controller_did,
+        )
+    else:
+        rows = await db.fetch_all(
+            """
+            SELECT namespace_id, domain, controller_did, verification_status,
+                   last_verified_at, created_at
+            FROM {{tables.dns_namespaces}}
+            WHERE deleted_at IS NULL
+            ORDER BY created_at
+            """,
+        )
+    return NamespaceListResponse(
+        namespaces=[_namespace_response(r) for r in rows],
+    )
+
+
+@router.delete("/{domain}")
+async def delete_namespace(
+    request: Request,
+    domain: str,
+    db_infra=Depends(get_db),
+) -> dict:
+    """Soft-delete a namespace. Must be signed by the controller key."""
+    db = db_infra.get_manager("aweb")
+    domain = _validate_domain(domain)
+
+    # Verify the caller's signature first (fail fast on bad auth)
+    caller_did = _verify_controller_signature(request, domain=domain, operation="delete")
+
+    # Transactional: lock the row, verify ownership, then delete
+    async with db.transaction() as tx:
+        row = await tx.fetch_one(
+            """
+            SELECT namespace_id, controller_did
+            FROM {{tables.dns_namespaces}}
+            WHERE domain = $1 AND deleted_at IS NULL
+            FOR UPDATE
+            """,
+            domain,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Namespace not found")
+
+        if caller_did != row["controller_did"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the namespace controller can delete",
+            )
+
+        await tx.execute(
+            "UPDATE {{tables.dns_namespaces}} SET deleted_at = NOW() WHERE namespace_id = $1",
+            row["namespace_id"],
+        )
+
+    return {"status": "deleted", "domain": domain}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _namespace_response(row) -> NamespaceResponse:
+    return NamespaceResponse(
+        namespace_id=str(row["namespace_id"]),
+        domain=row["domain"],
+        controller_did=row["controller_did"],
+        verification_status=row["verification_status"],
+        last_verified_at=row["last_verified_at"].isoformat() if row["last_verified_at"] else None,
+        created_at=row["created_at"].isoformat(),
+    )

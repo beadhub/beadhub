@@ -1,0 +1,56 @@
+[project]
+name = "aweb"
+version = "0.1.0"
+description = "Self-hostable aweb coordination server and protocol runtime"
+readme = "README.md"
+authors = [
+    { name = "Juan Reyero", email = "hello@aweb.ai" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "base58>=2.1.1",
+    "cryptography>=45.0.6",
+    "fastapi>=0.116.1",
+    "httpx>=0.28.1",
+    "mcp>=1.26.0",
+    "pgdbm>=0.4.1",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "pynacl>=1.6.2",
+    "pyyaml>=6.0.2",
+    "redis>=6.4.0",
+    "typer>=0.16.1",
+    "uvicorn[standard]>=0.35.0",
+]
+
+[project.scripts]
+aweb = "aweb.cli:app"
+
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["aweb*"]
+
+[tool.setuptools.package-data]
+aweb = [
+    "defaults/invariants/*.md",
+    "defaults/roles/*.md",
+    "migrations/aweb/*.sql",
+    "migrations/server/*.sql",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -1,0 +1,228 @@
+"""MCP authentication middleware.
+
+Resolves the calling agent's identity and makes it available to MCP tool
+handlers via a contextvar.  Supports two auth modes:
+
+1. **Direct mode** (OSS / standalone): Bearer token validated against the aweb
+   API key store.
+2. **Proxy mode** (embedded / hosted): Signed internal headers injected by the
+   outer auth middleware (requires ``AWEB_TRUST_PROXY_HEADERS=1``).
+"""
+
+from __future__ import annotations
+
+import contextvars
+import logging
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import HTTPException
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from aweb.auth import (
+    _parse_internal_auth_context,
+    _trust_aweb_proxy_headers,
+    verify_bearer_token_details,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AuthContext:
+    """Resolved identity for the current MCP request."""
+
+    project_id: str
+    agent_id: str
+    api_key_id: str | None = None
+    principal_type: str = "k"
+    principal_id: str | None = None
+
+
+_auth_context: contextvars.ContextVar[AuthContext | None] = contextvars.ContextVar(
+    "aweb_mcp_auth", default=None
+)
+
+
+def get_auth() -> AuthContext:
+    """Return the auth context for the current request.
+
+    Raises RuntimeError if called outside an authenticated request.
+    """
+    ctx = _auth_context.get()
+    if ctx is None:
+        raise RuntimeError("No MCP auth context — request was not authenticated")
+    return ctx
+
+
+class MCPAuthMiddleware:
+    """ASGI middleware that resolves agent identity for MCP requests.
+
+    Supports proxy-header auth (for claweb) and direct Bearer token auth (OSS).
+    """
+
+    def __init__(self, app: ASGIApp, db_infra: Any) -> None:
+        self.app = app
+        self.db_infra = db_infra
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+
+        if _trust_aweb_proxy_headers():
+            # Proxy mode: proxy auth is the only path — never fall back to Bearer.
+            try:
+                ctx = self._resolve_proxy_auth(request)
+            except HTTPException as exc:
+                response = JSONResponse(
+                    {"error": exc.detail},
+                    status_code=exc.status_code,
+                    headers=exc.headers,
+                )
+                await response(scope, receive, send)
+                return
+            if ctx is None:
+                response = JSONResponse(
+                    {"error": "Authentication required"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                await response(scope, receive, send)
+                return
+        else:
+            ctx = await self._resolve_bearer_auth(request, scope, receive, send)
+            if ctx is None:
+                return  # Response already sent by _resolve_bearer_auth.
+
+        log_hosted_mcp = ctx.principal_type == "m"
+        response_status: int | None = None
+
+        async def _send_with_status(message: Message) -> None:
+            nonlocal response_status
+            if message["type"] == "http.response.start":
+                response_status = int(message["status"])
+            await send(message)
+
+        if log_hosted_mcp:
+            logger.info(
+                "Hosted MCP request start method=%s path=%s origin=%s accept=%s content_type=%s "
+                "protocol_version=%s session_id=%s project_id=%s actor_id=%s principal_id=%s",
+                scope.get("method"),
+                scope.get("path"),
+                request.headers.get("origin", ""),
+                request.headers.get("accept", ""),
+                request.headers.get("content-type", ""),
+                request.headers.get("mcp-protocol-version", ""),
+                request.headers.get("mcp-session-id", ""),
+                ctx.project_id,
+                ctx.agent_id,
+                ctx.principal_id or "",
+            )
+
+        cv_token = _auth_context.set(ctx)
+        try:
+            await self.app(scope, receive, _send_with_status if log_hosted_mcp else send)
+        except Exception:
+            if log_hosted_mcp:
+                logger.exception(
+                    "Hosted MCP request exception method=%s path=%s protocol_version=%s session_id=%s "
+                    "project_id=%s actor_id=%s principal_id=%s",
+                    scope.get("method"),
+                    scope.get("path"),
+                    request.headers.get("mcp-protocol-version", ""),
+                    request.headers.get("mcp-session-id", ""),
+                    ctx.project_id,
+                    ctx.agent_id,
+                    ctx.principal_id or "",
+                )
+            raise
+        finally:
+            if log_hosted_mcp:
+                logger.info(
+                    "Hosted MCP request finished method=%s path=%s status=%s protocol_version=%s "
+                    "session_id=%s project_id=%s actor_id=%s principal_id=%s",
+                    scope.get("method"),
+                    scope.get("path"),
+                    response_status,
+                    request.headers.get("mcp-protocol-version", ""),
+                    request.headers.get("mcp-session-id", ""),
+                    ctx.project_id,
+                    ctx.agent_id,
+                    ctx.principal_id or "",
+                )
+            _auth_context.reset(cv_token)
+
+    @staticmethod
+    def _resolve_proxy_auth(request: Request) -> AuthContext | None:
+        """Resolve auth from signed proxy headers (proxy mode).
+
+        Raises HTTPException on invalid signatures — callers must not swallow it.
+        Returns None only when no proxy headers are present at all.
+        """
+        internal = _parse_internal_auth_context(request)
+        if internal is None:
+            return None
+        principal_type = (internal.get("principal_type") or "").strip()
+        if principal_type not in {"k", "m"}:
+            raise HTTPException(status_code=403, detail="MCP requires an agent-bound principal")
+        actor_id = (internal.get("actor_id") or "").strip()
+        if not actor_id:
+            return None
+        return AuthContext(
+            project_id=internal["project_id"],
+            agent_id=actor_id,
+            api_key_id=internal.get("principal_id") if principal_type == "k" else None,
+            principal_type=principal_type,
+            principal_id=internal.get("principal_id") or None,
+        )
+
+    async def _resolve_bearer_auth(
+        self, request: Request, scope: Scope, receive: Receive, send: Send
+    ) -> AuthContext | None:
+        """Resolve auth from Bearer token (OSS mode). Sends error response on failure."""
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            response = JSONResponse(
+                {"error": "Authentication required"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            await response(scope, receive, send)
+            return None
+
+        token = auth_header[7:]
+        try:
+            details = await verify_bearer_token_details(self.db_infra, token, manager_name="aweb")
+        except HTTPException:
+            response = JSONResponse(
+                {"error": "Invalid API key"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            await response(scope, receive, send)
+            return None
+        except Exception:
+            logger.exception("Unexpected error validating API key")
+            raise
+
+        agent_id = (details.get("agent_id") or "").strip()
+        if not agent_id:
+            response = JSONResponse(
+                {"error": "API key is not bound to an agent"},
+                status_code=403,
+            )
+            await response(scope, receive, send)
+            return None
+
+        return AuthContext(
+            project_id=str(details["project_id"]),
+            agent_id=agent_id,
+            api_key_id=str(details["api_key_id"]),
+            principal_type="k",
+            principal_id=str(details["api_key_id"]),
+        )
