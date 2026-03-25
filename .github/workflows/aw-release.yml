@@ -3,7 +3,7 @@ name: aw Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'aw-v*'
 
 permissions:
   contents: write
@@ -19,14 +19,15 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+          go-version-file: cli/go/go.mod
+          cache-dependency-path: cli/go/go.sum
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
+          workdir: cli/go
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -43,8 +44,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Download release artifacts
+        working-directory: cli/go
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${GITHUB_REF_NAME#aw-v}
           mkdir -p artifacts
           for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
             ext=tar.gz
@@ -55,6 +57,7 @@ jobs:
           done
 
       - name: Publish to npm
+        working-directory: cli/go
         run: bash npm/publish.sh
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
