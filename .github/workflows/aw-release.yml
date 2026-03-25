@@ -48,10 +48,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet && echo "No changes to sync" && exit 0
-          git commit -m "Sync from awebai/aweb aw-v${VERSION}"
+          if git diff --cached --quiet; then
+            echo "No code changes to sync"
+          else
+            git commit -m "Sync from awebai/aweb aw-v${VERSION}"
+            git push origin main
+          fi
+
+          # Always tag and push the tag (triggers the aw release workflow)
           git tag "v${VERSION}"
-          git push origin main
           git push origin "v${VERSION}"
 
           echo "Pushed v${VERSION} to awebai/aw — release workflow will take over"
