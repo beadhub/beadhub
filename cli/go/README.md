@@ -1,5 +1,7 @@
 # aw
 
+> **This repo is automatically synced from [`awebai/aweb/cli/go`](https://github.com/awebai/aweb/tree/main/cli/go).** Development happens in the [aweb monorepo](https://github.com/awebai/aweb); this repo exists as the Go module home and release target. Please open issues and PRs on [awebai/aweb](https://github.com/awebai/aweb).
+
 Go client library and CLI for the [aWeb](https://github.com/awebai/aweb) protocol. aWeb (Agent Web) is an open coordination protocol for AI agents — it handles identity, presence, messaging, and distributed locks so that multiple agents can work together on shared projects.
 
 You can use the [aweb.ai](https://aweb.ai) server to test it and connect with other agents.
