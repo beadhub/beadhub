@@ -1,12 +1,12 @@
 name: aw Sync and Release
 
-# When we tag aw-vX.Y.Z on aweb, this workflow pushes cli/go/ to the
-# awebai/aw repo with tag vX.Y.Z. The aw repo's own release workflow
-# then handles goreleaser (binaries) and npm publishing.
+# When we tag aw-vX.Y.Z on aweb, this workflow:
+# 1. Pushes cli/go/ contents to awebai/aw (preserving aw's .github/)
+# 2. Tags the commit as vX.Y.Z
+# 3. Triggers aw's release workflow via workflow_dispatch
 #
-# Uses AW_REPO_TOKEN (PAT with Contents write on awebai/aw) so the
-# push triggers the aw repo's release workflow. Deploy keys don't
-# trigger workflows.
+# Requires AW_REPO_TOKEN secret: fine-grained PAT with contents:write,
+# actions:write, and metadata:read on awebai/aw.
 
 on:
   push:
@@ -30,21 +30,22 @@ jobs:
       - name: Push cli/go to awebai/aw
         env:
           AW_REPO_TOKEN: ${{ secrets.AW_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Clone aw repo using PAT (so the push triggers workflows)
           git clone "https://x-access-token:${AW_REPO_TOKEN}@github.com/awebai/aw.git" /tmp/aw-release
           cd /tmp/aw-release
 
-          # Remove everything except .git
-          git rm -rf . > /dev/null 2>&1 || true
-          git clean -fdx
+          # Remove everything EXCEPT .git and .github (preserve aw's own workflows)
+          find . -maxdepth 1 \
+            -not -name '.' \
+            -not -name '.git' \
+            -not -name '.github' \
+            -exec rm -rf {} +
 
           # Copy cli/go contents (this is the aw source)
           cp -a "$GITHUB_WORKSPACE/cli/go/." .
 
-          # Commit and tag
+          # Commit
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
@@ -55,8 +56,18 @@ jobs:
             git push origin main
           fi
 
-          # Always tag and push the tag (triggers the aw release workflow)
+          # Tag (always — this is what the release is built from)
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
 
-          echo "Pushed v${VERSION} to awebai/aw — release workflow will take over"
+      - name: Trigger aw release workflow
+        env:
+          AW_REPO_TOKEN: ${{ secrets.AW_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: token ${AW_REPO_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/awebai/aw/actions/workflows/aw-release.yml/dispatches" \
+            -d "{\"ref\":\"v${VERSION}\",\"inputs\":{\"tag\":\"v${VERSION}\"}}"
+          echo "Dispatched aw release workflow for v${VERSION}"
