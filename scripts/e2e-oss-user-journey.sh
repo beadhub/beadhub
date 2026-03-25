@@ -297,7 +297,7 @@ AWEB_URL="$SERVER_URL" AWEB_API_KEY="$BOB_KEY" run_aw mail ack --message-id "$BO
 echo "  PASS: message acked"
 
 bob_unread="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$BOB_KEY" run_aw mail inbox --unread-only --json 2>/dev/null)"
-bob_unread_count="$(echo "$bob_unread" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('messages',[])))" 2>/dev/null || echo "")"
+bob_unread_count="$(echo "$bob_unread" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('messages',[])))" 2>/dev/null || echo "0")"
 assert_eq "bob unread inbox empty" "0" "$bob_unread_count"
 echo ""
 
@@ -328,6 +328,220 @@ AWEB_URL="$SERVER_URL" AWEB_API_KEY="$BOB_KEY" run_aw mail send \
   --body "Got it, reply from bob" 2>/dev/null
 ((pass++))
 echo "  PASS: reply sent"
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 12: whoami
+# ---------------------------------------------------------------------------
+echo "=== Phase 12: whoami ==="
+
+whoami_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw whoami --json 2>/dev/null)"
+whoami_alias="$(echo "$whoami_out" | jq_field alias)"
+whoami_project="$(echo "$whoami_out" | jq_field project_id)"
+assert_eq "whoami alias" "alice" "$whoami_alias"
+assert_eq "whoami project" "$PROJECT_ID" "$whoami_project"
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 13: workspace status
+# ---------------------------------------------------------------------------
+echo "=== Phase 13: workspace status ==="
+
+ws_status_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw workspace status 2>/dev/null)"
+ws_status_exit=$?
+if [[ $ws_status_exit -eq 0 && -n "$ws_status_out" ]]; then
+  echo "  PASS: workspace status"
+  ((pass++))
+else
+  echo "  FAIL: workspace status (exit=$ws_status_exit)"
+  ((fail++))
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 14: chat (full round-trip)
+# ---------------------------------------------------------------------------
+echo "=== Phase 14: chat ==="
+
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw chat send-and-wait bob \
+  "E2E chat from alice" --start-conversation --wait 3 2>/dev/null
+((pass++))
+echo "  PASS: alice→bob chat sent"
+
+bob_pending="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$BOB_KEY" run_aw chat pending 2>/dev/null)"
+if echo "$bob_pending" | grep -qi "alice"; then
+  echo "  PASS: bob sees pending chat from alice"
+  ((pass++))
+else
+  echo "  FAIL: bob has no pending chat from alice (output: ${bob_pending:0:100})"
+  ((fail++))
+fi
+
+bob_open="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$BOB_KEY" run_aw chat open alice 2>/dev/null)"
+if echo "$bob_open" | grep -q "E2E chat from alice"; then
+  echo "  PASS: bob reads alice's chat message"
+  ((pass++))
+else
+  echo "  FAIL: bob can't read alice's message (output: ${bob_open:0:100})"
+  ((fail++))
+fi
+
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$BOB_KEY" run_aw chat send-and-leave alice \
+  "Chat reply from bob" 2>/dev/null
+((pass++))
+echo "  PASS: bob→alice chat reply"
+
+alice_history="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw chat history bob 2>/dev/null)"
+if echo "$alice_history" | grep -q "Chat reply from bob"; then
+  echo "  PASS: alice sees bob's reply in history"
+  ((pass++))
+else
+  echo "  FAIL: alice can't see chat history (output: ${alice_history:0:100})"
+  ((fail++))
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 15: tasks
+# ---------------------------------------------------------------------------
+echo "=== Phase 15: tasks ==="
+
+task_create_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw task create \
+  --title "E2E test task" --json 2>/dev/null)"
+TASK_ID="$(echo "$task_create_out" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('task_id') or d.get('id',''))" 2>/dev/null || echo "")"
+assert_not_empty "task created" "$TASK_ID"
+
+task_list_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw task list 2>/dev/null)"
+if echo "$task_list_out" | grep -q "E2E test task"; then
+  echo "  PASS: task list shows our task"
+  ((pass++))
+else
+  echo "  FAIL: task list doesn't show our task"
+  ((fail++))
+fi
+
+if [[ -n "$TASK_ID" ]]; then
+  AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw task close "$TASK_ID" 2>/dev/null
+  ((pass++))
+  echo "  PASS: task closed"
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 16: policy + work discovery
+# ---------------------------------------------------------------------------
+echo "=== Phase 16: policy + work ==="
+
+policy_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw policy show --json 2>/dev/null)"
+if [[ $? -eq 0 && -n "$policy_out" ]]; then
+  echo "  PASS: policy show"
+  ((pass++))
+else
+  echo "  FAIL: policy show"
+  ((fail++))
+fi
+
+work_ready_exit=0
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw work ready --json 2>/dev/null || work_ready_exit=$?
+if [[ $work_ready_exit -eq 0 ]]; then
+  echo "  PASS: work ready"
+  ((pass++))
+else
+  echo "  FAIL: work ready (exit=$work_ready_exit)"
+  ((fail++))
+fi
+
+work_active_exit=0
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw work active --json 2>/dev/null || work_active_exit=$?
+if [[ $work_active_exit -eq 0 ]]; then
+  echo "  PASS: work active"
+  ((pass++))
+else
+  echo "  FAIL: work active (exit=$work_active_exit)"
+  ((fail++))
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 17: contacts + heartbeat
+# ---------------------------------------------------------------------------
+echo "=== Phase 17: contacts + heartbeat ==="
+
+contacts_exit=0
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw contacts list --json 2>/dev/null || contacts_exit=$?
+if [[ $contacts_exit -eq 0 ]]; then
+  echo "  PASS: contacts list"
+  ((pass++))
+else
+  echo "  FAIL: contacts list (exit=$contacts_exit)"
+  ((fail++))
+fi
+
+hb_exit=0
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw heartbeat 2>/dev/null || hb_exit=$?
+if [[ $hb_exit -eq 0 ]]; then
+  echo "  PASS: heartbeat"
+  ((pass++))
+else
+  echo "  FAIL: heartbeat (exit=$hb_exit)"
+  ((fail++))
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 18: roles + identities
+# ---------------------------------------------------------------------------
+echo "=== Phase 18: roles + identities ==="
+
+roles_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw roles list 2>/dev/null)"
+if [[ $? -eq 0 && -n "$roles_out" ]]; then
+  echo "  PASS: roles list"
+  ((pass++))
+else
+  echo "  FAIL: roles list"
+  ((fail++))
+fi
+
+identities_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw identities --json 2>/dev/null)"
+alice_found="$(echo "$identities_out" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+agents = d.get('identities') or d.get('agents') or []
+print(any(a.get('alias') == 'alice' for a in agents))
+" 2>/dev/null || echo "False")"
+assert_eq "alice in identities" "True" "$alice_found"
+
+bob_found="$(echo "$identities_out" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+agents = d.get('identities') or d.get('agents') or []
+print(any(a.get('alias') == 'bob' for a in agents))
+" 2>/dev/null || echo "False")"
+assert_eq "bob in identities" "True" "$bob_found"
+
+reviewer_found="$(echo "$identities_out" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+agents = d.get('identities') or d.get('agents') or []
+print(any(a.get('alias') == 'reviewer' for a in agents))
+" 2>/dev/null || echo "False")"
+assert_eq "reviewer in identities" "True" "$reviewer_found"
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 19: lock list
+# ---------------------------------------------------------------------------
+echo "=== Phase 19: lock list ==="
+
+lock_exit=0
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw lock list 2>/dev/null || lock_exit=$?
+if [[ $lock_exit -eq 0 ]]; then
+  echo "  PASS: lock list"
+  ((pass++))
+else
+  echo "  FAIL: lock list (exit=$lock_exit)"
+  ((fail++))
+fi
 echo ""
 
 echo "=== All user journey phases complete ==="

@@ -150,6 +150,7 @@ class CreateSessionRequest(BaseModel):
     to_aliases: list[str] = Field(..., min_length=1)
     message: str
     leaving: bool = False
+    wait_seconds: int | None = None
     message_id: str | None = None
     timestamp: str | None = None
     from_did: str | None = Field(default=None, max_length=256)

@@ -1523,7 +1523,7 @@ async def list_agents(
     aweb_db = db_infra.get_manager("aweb")
     server_db = db_infra.get_manager("server")
     databases = getattr(request.app.state, "databases", None) or {}
-    api_db = getattr(request.app.state, "api_db", None) or databases.get("api") or getattr(request.app.state, "db", None)
+    api_db = getattr(request.app.state, "api_db", None) or databases.get("api")
     project_row = await server_db.fetch_one(
         """
         SELECT id
