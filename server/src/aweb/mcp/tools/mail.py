@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import uuid as uuid_mod
-from datetime import datetime, timezone
 from typing import cast
 from uuid import UUID
 
@@ -340,60 +339,3 @@ async def check_inbox(
         messages.append(msg)
 
     return json.dumps({"messages": messages})
-
-
-async def ack_message(db_infra, *, message_id: str) -> str:
-    """Acknowledge (mark as read) a message."""
-    auth = get_auth()
-    aweb_db = db_infra.get_manager("aweb")
-
-    try:
-        message_uuid = UUID(message_id.strip())
-    except Exception:
-        return json.dumps({"error": "Invalid message_id format"})
-
-    row = await aweb_db.fetch_one(
-        """
-        SELECT read_at
-        FROM {{tables.messages}}
-        WHERE recipient_project_id = $1 AND message_id = $2 AND to_agent_id = $3
-        """,
-        UUID(auth.project_id),
-        message_uuid,
-        UUID(auth.agent_id),
-    )
-    if not row:
-        return json.dumps({"error": "Message not found"})
-
-    await aweb_db.execute(
-        """
-        UPDATE {{tables.messages}}
-        SET read_at = COALESCE(read_at, NOW())
-        WHERE recipient_project_id = $1 AND message_id = $2 AND to_agent_id = $3
-        """,
-        UUID(auth.project_id),
-        message_uuid,
-        UUID(auth.agent_id),
-    )
-
-    updated = await aweb_db.fetch_one(
-        """
-        SELECT read_at
-        FROM {{tables.messages}}
-        WHERE recipient_project_id = $1 AND message_id = $2 AND to_agent_id = $3
-        """,
-        UUID(auth.project_id),
-        message_uuid,
-        UUID(auth.agent_id),
-    )
-    return json.dumps(
-        {
-            "message_id": str(message_uuid),
-            "status": "acknowledged",
-            "acknowledged_at": (
-                _utc_iso(updated["read_at"])
-                if updated and updated["read_at"] is not None
-                else _utc_iso(datetime.now(timezone.utc))
-            ),
-        }
-    )

@@ -31,6 +31,12 @@ from aweb.mcp.tools.contacts import contacts_remove as _contacts_remove_impl
 from aweb.mcp.tools.identity import whoami as _whoami_impl
 from aweb.mcp.tools.mail import check_inbox as _check_inbox_impl
 from aweb.mcp.tools.mail import send_mail as _send_mail_impl
+from aweb.mcp.tools.policies import policy_show as _policy_show_impl
+from aweb.mcp.tools.tasks import task_close as _task_close_impl
+from aweb.mcp.tools.tasks import task_create as _task_create_impl
+from aweb.mcp.tools.tasks import task_get as _task_get_impl
+from aweb.mcp.tools.tasks import task_list as _task_list_impl
+from aweb.mcp.tools.tasks import task_ready as _task_ready_impl
 
 class NormalizeMountedMCPPathMiddleware:
     """Rewrite exact /mcp requests to /mcp/ before FastAPI routing.
@@ -245,6 +251,84 @@ def register_tools(mcp: FastMCP, db_infra: DatabaseInfra, redis: Optional[Redis]
         return await _chat_read_impl(
             db_infra, session_id=session_id, up_to_message_id=up_to_message_id
         )
+
+    # -- Tasks --
+
+    @mcp.tool(
+        name="task_create",
+        description="Create a task in the current project.",
+    )
+    async def task_create(
+        title: str,
+        description: str = "",
+        notes: str = "",
+        priority: int = 2,
+        task_type: str = "task",
+        labels: list[str] | None = None,
+        parent_task_id: str = "",
+        assignee: str = "",
+    ) -> str:
+        return await _task_create_impl(
+            db_infra,
+            title=title,
+            description=description,
+            notes=notes,
+            priority=priority,
+            task_type=task_type,
+            labels=labels,
+            parent_task_id=parent_task_id,
+            assignee=assignee,
+        )
+
+    @mcp.tool(
+        name="task_list",
+        description="List tasks in the current project.",
+    )
+    async def task_list(
+        status: str = "",
+        assignee: str = "",
+        task_type: str = "",
+        priority: int = -1,
+        labels: list[str] | None = None,
+    ) -> str:
+        return await _task_list_impl(
+            db_infra,
+            status=status,
+            assignee=assignee,
+            task_type=task_type,
+            priority=priority,
+            labels=labels,
+        )
+
+    @mcp.tool(
+        name="task_ready",
+        description="List ready tasks in the current project.",
+    )
+    async def task_ready(unclaimed_only: bool = True) -> str:
+        return await _task_ready_impl(db_infra, unclaimed_only=unclaimed_only)
+
+    @mcp.tool(
+        name="task_get",
+        description="Get a task by ref or UUID.",
+    )
+    async def task_get(ref: str) -> str:
+        return await _task_get_impl(db_infra, ref=ref)
+
+    @mcp.tool(
+        name="task_close",
+        description="Close a task by ref or UUID.",
+    )
+    async def task_close(ref: str) -> str:
+        return await _task_close_impl(db_infra, ref=ref)
+
+    # -- Policies --
+
+    @mcp.tool(
+        name="policy_show",
+        description="Show the active project policy and the current agent's selected role guidance.",
+    )
+    async def policy_show(only_selected: bool = False) -> str:
+        return await _policy_show_impl(db_infra, only_selected=only_selected)
 
     # -- Contacts --
 
