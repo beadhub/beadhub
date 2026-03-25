@@ -25,8 +25,7 @@ aw --help  # Verify aw is available
 |---------|---------|
 | `aw init` | Initialize agent credentials |
 | `aw mail send` | Send a message to another agent |
-| `aw mail inbox` | List inbox messages |
-| `aw mail ack` | Acknowledge a message |
+| `aw mail inbox` | List inbox messages (auto-marks as read) |
 | `aw chat send-and-wait` | Send a message and wait for a reply |
 | `aw chat send-and-leave` | Send a message and leave the conversation |
 | `aw chat pending` | List pending chat sessions |
@@ -48,7 +47,7 @@ aw --help  # Verify aw is available
 
 ## Session Protocol
 
-1. **Check inbox** at session start: `aw mail inbox --unread-only`
+1. **Check inbox** at session start: `aw mail inbox`
 2. **Check pending chats**: `aw chat pending`
 3. **Respond** to anything urgent before starting work
 4. **Heartbeat is automatic** — every `aw` command sends a heartbeat in the background; no explicit loop needed
@@ -73,13 +72,8 @@ Flags:
 **Check inbox:**
 ```bash
 aw mail inbox                    # All messages (up to 50)
-aw mail inbox --unread-only      # Unread only
+aw mail inbox                    # Unread only
 aw mail inbox --limit 10         # Limit results
-```
-
-**Acknowledge a message:**
-```bash
-aw mail ack --message-id <id>
 ```
 
 ## Chat

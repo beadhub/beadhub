@@ -111,6 +111,41 @@ func TestServerResolverValidAddress(t *testing.T) {
 	}
 }
 
+func TestServerResolverUsesProjectScopedResolvePath(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/agents/resolve/researcher" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"agent_id": "agent-123",
+			"address":  "demo/researcher",
+			"custody":  "self",
+			"lifetime": "ephemeral",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	c, err := NewWithAPIKey(server.URL, "aw_sk_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetProjectSlug("demo")
+
+	r := &ServerResolver{Client: c}
+	identity, err := r.Resolve(context.Background(), "demo/researcher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.IdentityID != "agent-123" {
+		t.Fatalf("identity_id=%q", identity.IdentityID)
+	}
+	if identity.Handle != "researcher" {
+		t.Fatalf("handle=%q", identity.Handle)
+	}
+}
+
 func TestServerResolverIncludesStableIDAndPublicKey(t *testing.T) {
 	t.Parallel()
 
@@ -147,6 +182,75 @@ func TestServerResolverIncludesStableIDAndPublicKey(t *testing.T) {
 	}
 	if identity.PublicKey == nil || !identity.PublicKey.Equal(pub) {
 		t.Fatal("public_key was not decoded correctly")
+	}
+}
+
+func TestServerResolverAcceptsPaddedPublicKey(t *testing.T) {
+	t.Parallel()
+
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	did := ComputeDIDKey(pub)
+	pubB64 := base64.StdEncoding.EncodeToString(pub)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"did":        did,
+			"address":    "mycompany/researcher",
+			"public_key": pubB64,
+			"custody":    "self",
+			"lifetime":   "persistent",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	c, err := NewWithAPIKey(server.URL, "aw_sk_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &ServerResolver{Client: c}
+	identity, err := r.Resolve(context.Background(), "mycompany/researcher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.PublicKey == nil || !identity.PublicKey.Equal(pub) {
+		t.Fatal("public_key was not decoded correctly")
+	}
+}
+
+func TestServerResolverFallsBackToDIDWhenPublicKeyEncodingIsInvalid(t *testing.T) {
+	t.Parallel()
+
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	did := ComputeDIDKey(pub)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"did":        did,
+			"address":    "mycompany/researcher",
+			"public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGnot-base64-for-this-client",
+			"custody":    "self",
+			"lifetime":   "ephemeral",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	c, err := NewWithAPIKey(server.URL, "aw_sk_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &ServerResolver{Client: c}
+	identity, err := r.Resolve(context.Background(), "mycompany/researcher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.PublicKey == nil || !identity.PublicKey.Equal(pub) {
+		t.Fatal("public_key should fall back to DID-derived key")
 	}
 }
 

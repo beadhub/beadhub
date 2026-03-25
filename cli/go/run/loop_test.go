@@ -295,7 +295,7 @@ func TestLoopMarksUIBusyDuringRun(t *testing.T) {
 
 func TestLoopWaitForWorkWakesOnChatMessage(t *testing.T) {
 	bus := newTestEventBus(
-		awid.AgentEvent{Type: awid.AgentEventChatMessage, FromAlias: "mia"},
+		awid.AgentEvent{Type: awid.AgentEventActionableChat, FromAlias: "mia"},
 	)
 	loop := NewLoop(ClaudeProvider{}, &bytes.Buffer{})
 	loop.EventBus = bus
@@ -691,7 +691,7 @@ func newTestEventBus(events ...awid.AgentEvent) *EventBus {
 
 func TestLoopEventBusWakesOnMailMessage(t *testing.T) {
 	bus := newTestEventBus(
-		awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "alice"},
+		awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "alice"},
 	)
 	loop := NewLoop(ClaudeProvider{}, &bytes.Buffer{})
 	loop.EventBus = bus
@@ -735,7 +735,7 @@ func TestNextPromptConsumesWakeEventAfterDispatch(t *testing.T) {
 
 	st := &state{
 		Run:           1,
-		LastWakeEvent: &awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "alice"},
+		LastWakeEvent: &awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "alice"},
 	}
 	opts := LoopOptions{WaitSeconds: 5, IdleWaitSeconds: 9}
 
@@ -1023,7 +1023,7 @@ func TestWaitForBusEventsSkipsCoordinationWithoutAutofeed(t *testing.T) {
 	// Pre-queue a coordination event, then a communication event.
 	bus := newTestEventBus()
 	bus.queue.Push(BusEvent{Priority: PriorityCoordination, Event: awid.AgentEvent{Type: awid.AgentEventWorkAvailable, TaskID: "t1"}})
-	bus.queue.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "alice"}})
+	bus.queue.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "alice"}})
 
 	loop := NewLoop(ClaudeProvider{}, &bytes.Buffer{})
 	loop.EventBus = bus
@@ -1037,7 +1037,7 @@ func TestWaitForBusEventsSkipsCoordinationWithoutAutofeed(t *testing.T) {
 	if st.LastWakeEvent == nil {
 		t.Fatal("expected LastWakeEvent to be set")
 	}
-	if st.LastWakeEvent.Type != awid.AgentEventMailMessage {
+	if st.LastWakeEvent.Type != awid.AgentEventActionableMail {
 		t.Fatalf("expected mail message wake (skipping coordination), got %s", st.LastWakeEvent.Type)
 	}
 }
@@ -1132,7 +1132,7 @@ func TestWaitForBusEventsDrainsQueueAfterReady(t *testing.T) {
 	// Pre-push both events before waitForBusEvents is called.
 	// This simulates them arriving between Ready() checks.
 	bus.queue.Push(BusEvent{Priority: PriorityCoordination, Event: awid.AgentEvent{Type: awid.AgentEventWorkAvailable}})
-	bus.queue.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "bob"}})
+	bus.queue.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "bob"}})
 
 	loop := NewLoop(ClaudeProvider{}, &bytes.Buffer{})
 	loop.EventBus = bus
@@ -1143,7 +1143,7 @@ func TestWaitForBusEventsDrainsQueueAfterReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if st.LastWakeEvent == nil || st.LastWakeEvent.Type != awid.AgentEventMailMessage {
+	if st.LastWakeEvent == nil || st.LastWakeEvent.Type != awid.AgentEventActionableMail {
 		t.Fatalf("expected mail wake, got %v", st.LastWakeEvent)
 	}
 }
@@ -1212,7 +1212,7 @@ func TestWaitForBusEventsDrainsQueueFromReadySignal(t *testing.T) {
 
 	// Push coordination first, then mail. Only one Ready() signal fires.
 	bus.queue.Push(BusEvent{Priority: PriorityCoordination, Event: awid.AgentEvent{Type: awid.AgentEventWorkAvailable}})
-	bus.queue.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "carol"}})
+	bus.queue.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "carol"}})
 
 	select {
 	case err := <-done:
@@ -1522,15 +1522,15 @@ func TestRunOnceRendersIncomingCycleWithoutPromptMarker(t *testing.T) {
 		return nil
 	}
 
-	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", "<- architect: can you review the retry path?", ""); err != nil {
+	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", "• from architect (chat): can you review the retry path?", ""); err != nil {
 		t.Fatalf("runOnce returned error: %v", err)
 	}
 
 	got := out.String()
-	if strings.Contains(got, "> <- architect: can you review the retry path?") {
+	if strings.Contains(got, "> • from architect (chat): can you review the retry path?") {
 		t.Fatalf("expected inbound cycle to avoid prompt marker, got %q", got)
 	}
-	if !strings.Contains(got, "\n<- architect: can you review the retry path?\n") {
+	if !strings.Contains(got, "\n• from architect (chat): can you review the retry path?\n") {
 		t.Fatalf("expected inbound cycle line, got %q", got)
 	}
 }

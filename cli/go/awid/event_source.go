@@ -17,8 +17,7 @@ type WakeFilter func(evt AgentEvent, autofeed bool) bool
 // communication wake events, control signals, and stream errors.
 func IsProtocolEvent(evt AgentEvent) bool {
 	switch evt.Type {
-	case AgentEventMailMessage, AgentEventChatMessage,
-		AgentEventActionableMail, AgentEventActionableChat,
+	case AgentEventActionableMail, AgentEventActionableChat,
 		AgentEventControlPause, AgentEventControlResume, AgentEventControlInterrupt,
 		AgentEventError:
 		return true

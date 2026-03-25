@@ -14,6 +14,33 @@ import (
 	"github.com/awebai/aw/chat"
 )
 
+func TestNotifyCooldownSkipsRecentCheck(t *testing.T) {
+	t.Parallel()
+
+	stampPath := filepath.Join(t.TempDir(), "stamp")
+	// No stamp file → should not skip.
+	if notifyCooldownActive(stampPath, 10*time.Second) {
+		t.Fatal("should not skip when stamp file does not exist")
+	}
+	// Touch the stamp file.
+	touchNotifyStamp(stampPath)
+	// Stamp just created → should skip.
+	if !notifyCooldownActive(stampPath, 10*time.Second) {
+		t.Fatal("should skip when stamp was just touched")
+	}
+}
+
+func TestNotifyCooldownExpiresAfterDuration(t *testing.T) {
+	t.Parallel()
+
+	stampPath := filepath.Join(t.TempDir(), "stamp")
+	touchNotifyStamp(stampPath)
+	// With a zero cooldown → should not skip.
+	if notifyCooldownActive(stampPath, 0) {
+		t.Fatal("should not skip with zero cooldown")
+	}
+}
+
 func TestFormatNotifyOutputNoPending(t *testing.T) {
 	t.Parallel()
 

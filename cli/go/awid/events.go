@@ -16,8 +16,6 @@ type AgentEventType string
 
 const (
 	AgentEventConnected        AgentEventType = "connected"
-	AgentEventMailMessage      AgentEventType = "mail_message"
-	AgentEventChatMessage      AgentEventType = "chat_message"
 	AgentEventActionableMail   AgentEventType = "actionable_mail"
 	AgentEventActionableChat   AgentEventType = "actionable_chat"
 	AgentEventWorkAvailable    AgentEventType = "work_available"
@@ -53,15 +51,6 @@ type AgentEvent struct {
 func (e AgentEvent) IsActionableCoordination() bool {
 	switch e.Type {
 	case AgentEventActionableMail, AgentEventActionableChat:
-		return true
-	default:
-		return false
-	}
-}
-
-func (e AgentEvent) IsCommunicationWake() bool {
-	switch e.Type {
-	case AgentEventMailMessage, AgentEventChatMessage, AgentEventActionableMail, AgentEventActionableChat:
 		return true
 	default:
 		return false
@@ -165,40 +154,6 @@ func parseAgentEvent(eventName, data string) (AgentEvent, bool, error) {
 			Raw:       raw,
 			AgentID:   payload.AgentID,
 			ProjectID: payload.ProjectID,
-		}, true, nil
-
-	case AgentEventMailMessage:
-		var payload struct {
-			MessageID string `json:"message_id"`
-			FromAlias string `json:"from_alias"`
-			Subject   string `json:"subject"`
-		}
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			return AgentEvent{}, false, fmt.Errorf("parse mail_message event: %w", err)
-		}
-		return AgentEvent{
-			Type:      AgentEventMailMessage,
-			Raw:       raw,
-			MessageID: payload.MessageID,
-			FromAlias: payload.FromAlias,
-			Subject:   payload.Subject,
-		}, true, nil
-
-	case AgentEventChatMessage:
-		var payload struct {
-			MessageID string `json:"message_id"`
-			FromAlias string `json:"from_alias"`
-			SessionID string `json:"session_id"`
-		}
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			return AgentEvent{}, false, fmt.Errorf("parse chat_message event: %w", err)
-		}
-		return AgentEvent{
-			Type:      AgentEventChatMessage,
-			Raw:       raw,
-			MessageID: payload.MessageID,
-			FromAlias: payload.FromAlias,
-			SessionID: payload.SessionID,
 		}, true, nil
 
 	case AgentEventActionableMail:

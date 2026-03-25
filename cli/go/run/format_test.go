@@ -42,7 +42,7 @@ func TestFormatToolCallLinesCompactsMailSendCommands(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one line, got %#v", lines)
 	}
-	if lines[0] != "-> dave (mail)" {
+	if lines[0] != "• to dave (mail)" {
 		t.Fatalf("unexpected mail tool line %q", lines[0])
 	}
 }
@@ -57,7 +57,7 @@ func TestFormatToolCallLinesCompactsChatSendCommands(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one line, got %#v", lines)
 	}
-	if lines[0] != "-> henry (chat)" {
+	if lines[0] != "• to henry (chat)" {
 		t.Fatalf("unexpected chat tool line %q", lines[0])
 	}
 }
@@ -67,7 +67,7 @@ func TestFormatToolResultLinesPreservesLineBreaks(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 result lines, got %#v", lines)
 	}
-	if lines[0] != "  = 1\talpha" || lines[1] != "  = 2\tbeta" || lines[2] != "  = 3\tgamma" {
+	if lines[0] != "  = 1\talpha" || lines[1] != "    2\tbeta" || lines[2] != "    3\tgamma" {
 		t.Fatalf("unexpected result lines %#v", lines)
 	}
 }
@@ -77,7 +77,7 @@ func TestFormatToolResultLinesSummarizesExtraLines(t *testing.T) {
 	if len(lines) != 7 {
 		t.Fatalf("expected 7 rendered lines, got %#v", lines)
 	}
-	if lines[6] != "  = ... +2 lines" {
+	if lines[6] != "    ... +2 lines" {
 		t.Fatalf("unexpected overflow summary %#v", lines)
 	}
 }

@@ -267,6 +267,65 @@ default_account: acct
 	}
 }
 
+func TestAwTaskListBlockedUsesBlockedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var sawBlockedList bool
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/tasks/blocked":
+			sawBlockedList = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tasks": []map[string]any{
+					{"task_ref": "PROJ-009", "title": "Blocked task", "priority": 1, "task_type": "task", "status": "open"},
+				},
+			})
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	if err := os.WriteFile(cfgPath, []byte(strings.TrimSpace(`
+servers:
+  local:
+    url: `+server.URL+`
+accounts:
+  acct:
+    server: local
+    api_key: aw_sk_test
+    identity_id: agent-1
+    identity_handle: alice
+    namespace_slug: demo
+default_account: acct
+`)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	run := exec.CommandContext(ctx, bin, "task", "list", "--status", "blocked", "--json")
+	run.Env = append(os.Environ(), "AW_CONFIG_PATH="+cfgPath, "AWEB_URL=", "AWEB_API_KEY=")
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+	if !sawBlockedList {
+		t.Fatal("expected /v1/tasks/blocked request")
+	}
+	if !strings.Contains(string(out), `"status": "blocked"`) {
+		t.Fatalf("output missing blocked status:\n%s", string(out))
+	}
+}
+
 func TestAwTaskListFiltersByStatus(t *testing.T) {
 	t.Parallel()
 
@@ -841,7 +900,15 @@ func TestAwTaskStatsSuccess(t *testing.T) {
 					{"task_ref": "P-2", "title": "b", "priority": 2, "task_type": "bug", "status": "open"},
 					{"task_ref": "P-3", "title": "c", "priority": 1, "task_type": "task", "status": "in_progress"},
 					{"task_ref": "P-4", "title": "d", "priority": 3, "task_type": "task", "status": "closed"},
-					{"task_ref": "P-5", "title": "e", "priority": 1, "task_type": "task", "status": "blocked"},
+					{"task_ref": "P-5", "title": "e", "priority": 1, "task_type": "task", "status": "open"},
+				},
+			})
+		case "/v1/tasks/blocked":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tasks": []map[string]any{
+					{"task_ref": "P-3", "title": "c", "priority": 1, "task_type": "task", "status": "in_progress"},
+					{"task_ref": "P-5", "title": "e", "priority": 1, "task_type": "task", "status": "open"},
+					{"task_ref": "P-6", "title": "f", "priority": 2, "task_type": "task", "status": "open"},
 				},
 			})
 		case "/v1/agents/heartbeat":
@@ -883,10 +950,53 @@ default_account: acct
 		t.Fatalf("run failed: %v\n%s", err, string(out))
 	}
 	text := string(out)
-	for _, want := range []string{"Total: 5", "Open: 2", "In progress: 1", "Blocked: 1", "Closed: 1"} {
+	for _, want := range []string{"Total: 6", "Open: 2", "In progress: 0", "Blocked: 3", "Closed: 1"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestAwTaskUpdateRejectsBlockedStatus(t *testing.T) {
+	t.Parallel()
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("no API call expected, got %s %s", r.Method, r.URL.Path)
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	if err := os.WriteFile(cfgPath, []byte(strings.TrimSpace(`
+servers:
+  local:
+    url: `+server.URL+`
+accounts:
+  acct:
+    server: local
+    api_key: aw_sk_test
+    identity_id: agent-1
+    identity_handle: alice
+    namespace_slug: demo
+default_account: acct
+`)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	run := exec.CommandContext(ctx, bin, "task", "update", "PROJ-001", "--status", "blocked")
+	run.Env = append(os.Environ(), "AW_CONFIG_PATH="+cfgPath, "AWEB_URL=", "AWEB_API_KEY=")
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error, got success:\n%s", string(out))
+	}
+	if !strings.Contains(string(out), "blocked is derived from task dependencies") {
+		t.Fatalf("unexpected output:\n%s", string(out))
 	}
 }
 

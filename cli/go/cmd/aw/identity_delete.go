@@ -97,6 +97,7 @@ func deleteEphemeralIdentityByWorkspace(ctx context.Context, client *aweb.Client
 	}
 
 	address := deriveIdentityAddress(namespaceSlug, "", alias)
+	client.Client.SetProjectSlug(projectSlug)
 	resolver := &awid.ServerResolver{Client: client.Client}
 	identity, err := resolver.Resolve(ctx, address)
 	if err != nil {
@@ -142,6 +143,11 @@ func resolveSelectionIdentityState(ctx context.Context, client *aweb.Client, sel
 		return "", "", fmt.Errorf("could not determine the current identity address from server state")
 	}
 
+	projectSlug := strings.TrimSpace(sel.DefaultProject)
+	if projectSlug == "" {
+		projectSlug = namespaceSlug
+	}
+	client.Client.SetProjectSlug(projectSlug)
 	resolver := &awid.ServerResolver{Client: client.Client}
 	identity, err := resolver.Resolve(ctx, address)
 	if err != nil {

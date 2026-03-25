@@ -56,8 +56,6 @@ func classifyAgentEvent(evt awid.AgentEvent) (EventPriority, bool) {
 		return PriorityInterrupt, true
 	case awid.AgentEventActionableMail, awid.AgentEventActionableChat:
 		return PriorityCommunication, true
-	case awid.AgentEventMailMessage, awid.AgentEventChatMessage:
-		return PriorityCommunication, true
 	case awid.AgentEventWorkAvailable, awid.AgentEventClaimUpdate, awid.AgentEventClaimRemoved:
 		return PriorityCoordination, true
 	default:
@@ -149,6 +147,7 @@ type EventBus struct {
 	interrupts chan BusEvent
 	queue      *PriorityQueue
 	deduper    *recentEventDeduper
+	streamTTL  time.Duration
 
 	connState     atomic.Int32
 	onStateChange func(ConnectionState)
@@ -163,6 +162,7 @@ type EventBusConfig struct {
 	Stream        EventStreamOpener
 	Now           func() time.Time
 	OnStateChange func(ConnectionState)
+	StreamTTL     time.Duration
 }
 
 func NewEventBus(cfg EventBusConfig) *EventBus {
@@ -176,8 +176,12 @@ func NewEventBus(cfg EventBusConfig) *EventBus {
 		interrupts:    make(chan BusEvent, 8),
 		queue:         NewPriorityQueue(),
 		deduper:       newRecentEventDeduper(256),
+		streamTTL:     cfg.StreamTTL,
 		onStateChange: cfg.OnStateChange,
 		done:          make(chan struct{}),
+	}
+	if b.streamTTL <= 0 {
+		b.streamTTL = streamDeadline
 	}
 	b.connState.Store(int32(ConnDisconnected))
 	return b
@@ -241,9 +245,11 @@ func (b *EventBus) run(ctx context.Context) {
 	for ctx.Err() == nil {
 		b.setState(ConnReconnecting)
 
-		deadline := b.now().Add(streamDeadline)
-		source, err := b.stream(ctx, deadline)
+		deadline := b.now().Add(b.streamTTL)
+		streamCtx, cancel := context.WithDeadline(ctx, deadline)
+		source, err := b.stream(streamCtx, deadline)
 		if err != nil {
+			cancel()
 			if code, ok := awid.HTTPStatusCode(err); ok && code >= 400 && code < 500 {
 				b.setState(ConnDisconnected)
 				return
@@ -259,8 +265,9 @@ func (b *EventBus) run(ctx context.Context) {
 		delay = 250 * time.Millisecond
 		b.setState(ConnStreaming)
 
-		b.consumeStream(ctx, source)
+		b.consumeStream(streamCtx, source)
 		_ = source.Close()
+		cancel()
 	}
 }
 

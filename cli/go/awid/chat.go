@@ -87,6 +87,7 @@ type ChatCreateSessionRequest struct {
 	ToAliases     []string `json:"to_aliases"`
 	Message       string   `json:"message"`
 	Leaving       bool     `json:"leaving,omitempty"`
+	WaitSeconds   *int     `json:"wait_seconds,omitempty"`
 	FromDID       string   `json:"from_did,omitempty"`
 	ToDID         string   `json:"to_did,omitempty"`
 	FromStableID  string   `json:"from_stable_id,omitempty"`
@@ -199,6 +200,7 @@ type ChatMessage struct {
 	Body                    string                   `json:"body"`
 	Timestamp               string                   `json:"timestamp"`
 	SenderLeaving           bool                     `json:"sender_leaving"`
+	ReplyToMessageID        string                   `json:"reply_to_message_id,omitempty"`
 	FromDID                 string                   `json:"from_did,omitempty"`
 	ToDID                   string                   `json:"to_did,omitempty"`
 	FromStableID            string                   `json:"from_stable_id,omitempty"`
@@ -327,9 +329,10 @@ func (c *Client) ChatStream(ctx context.Context, sessionID string, deadline time
 
 // ChatSendMessage sends a message in an existing chat session.
 type ChatSendMessageRequest struct {
-	Body          string `json:"body"`
-	ExtendWait    bool   `json:"hang_on,omitempty"`
-	FromDID       string `json:"from_did,omitempty"`
+	Body             string `json:"body"`
+	ExtendWait       bool   `json:"hang_on,omitempty"`
+	ReplyToMessageID string `json:"reply_to_message_id,omitempty"`
+	FromDID          string `json:"from_did,omitempty"`
 	ToDID         string `json:"to_did,omitempty"`
 	FromStableID  string `json:"from_stable_id,omitempty"`
 	Signature     string `json:"signature,omitempty"`

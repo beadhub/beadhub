@@ -13,7 +13,7 @@ func TestAddExternalNamespace(t *testing.T) {
 
 	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/namespaces/external" {
+		if r.URL.Path != "/api/v1/projects/p-1/namespaces/external" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
@@ -21,18 +21,18 @@ func TestAddExternalNamespace(t *testing.T) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"namespace_id":         "ns-1",
-			"slug":                 "acme-com",
-			"full_name":            "acme.com",
-			"display_name":         "acme.com",
-			"is_default":           false,
-			"is_external":          true,
+			"namespace_id":          "ns-1",
+			"slug":                  "acme-com",
+			"full_name":             "acme.com",
+			"display_name":          "acme.com",
+			"is_default":            false,
+			"is_external":           true,
 			"published_agent_count": 0,
-			"dns_txt_name":         "_aweb.acme.com",
-			"dns_txt_value":        "aweb=v1; controller=did:key:z6Mkf;",
-			"dns_status":           "desired",
-			"registration_status":  "unregistered",
-			"created_at":           "2026-03-19T10:00:00Z",
+			"dns_txt_name":          "_aweb.acme.com",
+			"dns_txt_value":         "aweb=v1; controller=did:key:z6Mkf;",
+			"dns_status":            "desired",
+			"registration_status":   "unregistered",
+			"created_at":            "2026-03-19T10:00:00Z",
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -42,7 +42,7 @@ func TestAddExternalNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := c.AddExternalNamespace(context.Background(), &ExternalNamespaceRequest{
+	resp, err := c.AddExternalNamespace(context.Background(), "p-1", &ExternalNamespaceRequest{
 		Domain: "acme.com",
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestAddExternalNamespaceValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = c.AddExternalNamespace(context.Background(), &ExternalNamespaceRequest{})
+	_, err = c.AddExternalNamespace(context.Background(), "p-1", &ExternalNamespaceRequest{})
 	if err == nil {
 		t.Fatal("expected error for empty domain")
 	}
@@ -90,18 +90,18 @@ func TestVerifyNamespace(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/namespaces/ns-1/verify" {
+		if r.URL.Path != "/api/v1/projects/p-1/namespaces/ns-1/verify" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
 			t.Fatalf("method=%s", r.Method)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"namespace_id":         "ns-1",
-			"slug":                 "acme-com",
-			"full_name":            "acme.com",
-			"dns_status":           "published",
-			"registration_status":  "registered",
+			"namespace_id":        "ns-1",
+			"slug":                "acme-com",
+			"full_name":           "acme.com",
+			"dns_status":          "published",
+			"registration_status": "registered",
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -111,7 +111,7 @@ func TestVerifyNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := c.VerifyNamespace(context.Background(), "ns-1")
+	resp, err := c.VerifyNamespace(context.Background(), "p-1", "ns-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestListManagedNamespaces(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/namespaces" {
+		if r.URL.Path != "/api/v1/projects/p-1/namespaces" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		if r.Method != http.MethodGet {
@@ -136,18 +136,18 @@ func TestListManagedNamespaces(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{
-				"namespace_id": "ns-1",
-				"full_name":    "myteam.aweb.ai",
-				"is_external":  false,
-				"registration_status": "registered",
-				"published_agent_count": 3,
+				"namespace_id":            "ns-1",
+				"full_name":               "myteam.aweb.ai",
+				"is_external":             false,
+				"registration_status":     "registered",
+				"assigned_identity_count": 3,
 			},
 			{
-				"namespace_id": "ns-2",
-				"full_name":    "acme.com",
-				"is_external":  true,
-				"registration_status": "unregistered",
-				"published_agent_count": 0,
+				"namespace_id":            "ns-2",
+				"full_name":               "acme.com",
+				"is_external":             true,
+				"registration_status":     "unregistered",
+				"assigned_identity_count": 0,
 			},
 		})
 	}))
@@ -158,7 +158,7 @@ func TestListManagedNamespaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := c.ListManagedNamespaces(context.Background())
+	list, err := c.ListManagedNamespaces(context.Background(), "p-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestDeleteNamespace(t *testing.T) {
 
 	var gotMethod string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/namespaces/ns-1" {
+		if r.URL.Path != "/api/v1/projects/p-1/namespaces/ns-1" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		gotMethod = r.Method
@@ -192,7 +192,7 @@ func TestDeleteNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = c.DeleteNamespace(context.Background(), "ns-1")
+	err = c.DeleteNamespace(context.Background(), "p-1", "ns-1")
 	if err != nil {
 		t.Fatal(err)
 	}

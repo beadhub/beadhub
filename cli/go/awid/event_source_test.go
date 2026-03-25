@@ -6,7 +6,6 @@ func TestIsProtocolEvent(t *testing.T) {
 	t.Parallel()
 
 	protocol := []AgentEventType{
-		AgentEventMailMessage, AgentEventChatMessage,
 		AgentEventActionableMail, AgentEventActionableChat,
 		AgentEventControlPause, AgentEventControlResume, AgentEventControlInterrupt,
 		AgentEventError,
@@ -42,7 +41,6 @@ func TestIsCoordinationEvent(t *testing.T) {
 
 	nonCoordination := []AgentEventType{
 		AgentEventConnected,
-		AgentEventMailMessage, AgentEventChatMessage,
 		AgentEventControlPause, AgentEventControlResume, AgentEventControlInterrupt,
 		AgentEventError,
 	}
@@ -64,8 +62,6 @@ func TestDefaultWakeFilterMatchesPreviousBehavior(t *testing.T) {
 	}{
 		{"connected never wakes", AgentEventConnected, false, false},
 		{"connected never wakes autofeed", AgentEventConnected, true, false},
-		{"mail always wakes", AgentEventMailMessage, false, true},
-		{"chat always wakes", AgentEventChatMessage, false, true},
 		{"actionable mail always wakes", AgentEventActionableMail, false, true},
 		{"actionable chat always wakes", AgentEventActionableChat, false, true},
 		{"pause always wakes", AgentEventControlPause, false, true},
@@ -95,7 +91,7 @@ func TestDefaultWakeFilterMatchesPreviousBehavior(t *testing.T) {
 func TestProtocolWakeFilterIgnoresAutofeed(t *testing.T) {
 	t.Parallel()
 
-	evt := AgentEvent{Type: AgentEventMailMessage}
+	evt := AgentEvent{Type: AgentEventActionableMail}
 	if !ProtocolWakeFilter(evt, false) {
 		t.Error("ProtocolWakeFilter should wake on mail regardless of autofeed")
 	}

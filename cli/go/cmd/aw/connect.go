@@ -61,15 +61,14 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if strings.TrimSpace(resp.IdentityID) == "" {
+	identityID := strings.TrimSpace(resp.CurrentIdentityID())
+	if identityID == "" {
 		return usageError("This API key is not bound to an identity. Use an identity-bound key from the dashboard.")
 	}
 
+	projectSlug := ""
 	namespaceSlug := strings.TrimSpace(resp.NamespaceSlug)
-	if namespaceSlug == "" {
-		return usageError("server did not return namespace_slug for the current identity; cannot import addressable identity state safely")
-	}
-
+	address := strings.TrimSpace(resp.Address)
 	handle := handleFromAddress(resp.Address)
 	if handle == "" {
 		handle = strings.TrimSpace(resp.IdentityHandle())
@@ -77,7 +76,23 @@ func runConnect(cmd *cobra.Command, args []string) error {
 	if handle == "" {
 		return usageError("server did not return an addressable identity handle; cannot import identity state safely")
 	}
-	identityID := strings.TrimSpace(resp.IdentityID)
+
+	if namespaceSlug == "" || address == "" {
+		project, err := client.GetCurrentProject(ctx)
+		if err != nil {
+			return err
+		}
+		projectSlug = strings.TrimSpace(project.Slug)
+		if projectSlug == "" {
+			return usageError("server did not return a project slug for the current auth context; cannot import identity state safely")
+		}
+	}
+	if projectSlug == "" {
+		projectSlug = namespaceSlug
+	}
+	if projectSlug != "" {
+		client.Client.SetProjectSlug(projectSlug)
+	}
 
 	// Derive account name from server + identity_id (stable across handle changes).
 	accountName := "acct-" + sanitizeKeyComponent(serverName) + "__" + sanitizeKeyComponent(identityID)
@@ -108,10 +123,16 @@ func runConnect(cmd *cobra.Command, args []string) error {
 	stableID := existingStableID
 	custody := existingCustody
 	lifetime := existingLifetime
-	if identityDID == "" || stableID == "" || custody == "" || lifetime == "" {
-		serverDID, serverStableID, serverCustody, serverLifetime := resolveServerIdentityState(
-			ctx, client, namespaceSlug, handle, strings.TrimSpace(resp.Address),
+	if namespaceSlug == "" || address == "" || identityDID == "" || stableID == "" || custody == "" || lifetime == "" {
+		serverAddress, serverDID, serverStableID, serverCustody, serverLifetime := resolveServerIdentityState(
+			ctx, client, namespaceSlug, projectSlug, handle, address,
 		)
+		if address == "" && strings.TrimSpace(serverAddress) != "" {
+			address = strings.TrimSpace(serverAddress)
+		}
+		if namespaceSlug == "" {
+			namespaceSlug = namespaceFromAddress(address)
+		}
 		if strings.TrimSpace(serverDID) != "" {
 			identityDID = strings.TrimSpace(serverDID)
 		}
@@ -124,6 +145,18 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(serverLifetime) != "" {
 			lifetime = strings.TrimSpace(serverLifetime)
 		}
+	}
+	if namespaceSlug == "" {
+		namespaceSlug = namespaceFromAddress(address)
+	}
+	if namespaceSlug == "" {
+		namespaceSlug = projectSlug
+	}
+	if namespaceSlug == "" {
+		return usageError("server did not return enough identity routing data; cannot import addressable identity state safely")
+	}
+	if address == "" {
+		address = deriveIdentityAddress(namespaceSlug, projectSlug, handle)
 	}
 	if stableID == "" && existingStableID != "" {
 		stableID = existingStableID
@@ -180,7 +213,7 @@ func runConnect(cmd *cobra.Command, args []string) error {
 	}
 
 	identityLabel := handle
-	if address := strings.TrimSpace(resp.Address); address != "" {
+	if address != "" {
 		identityLabel = address
 	}
 	if identityLabel == "" {
@@ -214,19 +247,33 @@ func runConnect(cmd *cobra.Command, args []string) error {
 func resolveServerIdentityState(
 	ctx context.Context,
 	client *aweb.Client,
-	namespaceSlug, alias, authoritativeAddress string,
-) (did, stableID, custody, lifetime string) {
-	address := strings.TrimSpace(authoritativeAddress)
-	if address == "" && strings.TrimSpace(namespaceSlug) != "" && strings.TrimSpace(alias) != "" {
-		address = deriveIdentityAddress(namespaceSlug, "", alias)
+	namespaceSlug, projectSlug, alias, authoritativeAddress string,
+) (address, did, stableID, custody, lifetime string) {
+	address = strings.TrimSpace(authoritativeAddress)
+	if address == "" && strings.TrimSpace(alias) != "" {
+		address = deriveIdentityAddress(namespaceSlug, projectSlug, alias)
 	}
 	if address == "" {
-		return "", "", "", ""
+		return "", "", "", "", ""
 	}
 	resolver := &awid.ServerResolver{Client: client.Client}
 	identity, err := resolver.Resolve(ctx, address)
 	if err != nil || identity == nil {
-		return "", "", "", ""
+		return "", "", "", "", ""
 	}
-	return strings.TrimSpace(identity.DID), strings.TrimSpace(identity.StableID), strings.TrimSpace(identity.Custody), strings.TrimSpace(identity.Lifetime)
+	return strings.TrimSpace(identity.Address), strings.TrimSpace(identity.DID), strings.TrimSpace(identity.StableID), strings.TrimSpace(identity.Custody), strings.TrimSpace(identity.Lifetime)
+}
+
+func namespaceFromAddress(address string) string {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ""
+	}
+	if idx := strings.LastIndexByte(address, '/'); idx > 0 {
+		return strings.TrimSpace(address[:idx])
+	}
+	if idx := strings.LastIndexByte(address, '~'); idx > 0 {
+		return strings.TrimSpace(address[:idx])
+	}
+	return ""
 }

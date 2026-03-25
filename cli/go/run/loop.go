@@ -312,7 +312,7 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 	st.RunLabel = "active"
 	l.setBusy(true)
 	defer l.setBusy(false)
-	if strings.HasPrefix(strings.TrimSpace(display), "<- ") {
+	if isIncomingCommDisplay(display) {
 		l.printf("\n%s\n\n", display)
 	} else {
 		l.printf("\n> %s\n\n", display)

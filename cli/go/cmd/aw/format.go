@@ -112,11 +112,6 @@ func formatMailInbox(v any) string {
 	return sb.String()
 }
 
-func formatMailAck(v any) string {
-	resp := v.(*awid.AckResponse)
-	return fmt.Sprintf("Acknowledged %s\n", resp.MessageID)
-}
-
 // --- chat ---
 
 func formatChatSend(v any) string {
@@ -207,9 +202,14 @@ func formatChatSend(v any) string {
 		if result.TargetNotConnected {
 			sb.WriteString(fmt.Sprintf("Note: %s was not connected.\n", result.TargetAgent))
 		}
-		if result.WaitedSeconds > 0 {
-			sb.WriteString(fmt.Sprintf("Waited %ds — no reply\n", result.WaitedSeconds))
+		return sb.String()
+
+	case "timeout":
+		sb.WriteString(fmt.Sprintf("Message sent to %s\n", result.TargetAgent))
+		if result.TargetNotConnected {
+			sb.WriteString(fmt.Sprintf("Note: %s was not connected.\n", result.TargetAgent))
 		}
+		sb.WriteString(fmt.Sprintf("Waited %ds — no reply\n", result.WaitedSeconds))
 		return sb.String()
 
 	case "targets_left":
@@ -393,10 +393,11 @@ func formatIdentityReachability(v any) string {
 func formatAgentPatch(v any) string {
 	out := v.(identityPatchOutput)
 	var sb strings.Builder
+	currentID := out.CurrentIdentityID()
 	if out.Alias != "" {
 		sb.WriteString(fmt.Sprintf("Identity:    %s\n", out.Alias))
-	} else {
-		sb.WriteString(fmt.Sprintf("Identity:    %s\n", out.IdentityID))
+	} else if currentID != "" {
+		sb.WriteString(fmt.Sprintf("Identity:    %s\n", currentID))
 	}
 	if out.AccessMode != "" {
 		sb.WriteString(fmt.Sprintf("Access mode: %s\n", out.AccessMode))

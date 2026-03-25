@@ -625,7 +625,7 @@ func TestAwWorkspaceStatusDeletesGoneEphemeralIdentity(t *testing.T) {
 				},
 				"has_more": false,
 			})
-		case r.URL.Path == "/v1/agents/resolve/demo/bob" && r.Method == http.MethodGet:
+		case r.URL.Path == "/v1/agents/resolve/bob" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"identity_id": "agent-bob",
 				"did":         "did:key:z6MkEphemeral",
@@ -765,7 +765,7 @@ func TestAwWorkspaceStatusKeepsGonePermanentIdentity(t *testing.T) {
 				},
 				"has_more": false,
 			})
-		case r.URL.Path == "/v1/agents/resolve/demo/maintainer" && r.Method == http.MethodGet:
+		case r.URL.Path == "/v1/agents/resolve/maintainer" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"identity_id": "agent-maintainer",
 				"did":         "did:key:z6MkPermanent",
@@ -1044,7 +1044,7 @@ func TestAwWorkspaceStatusLeavesWorkspaceWhenIdentityDeleteUnconfirmed(t *testin
 				},
 				"has_more": false,
 			})
-		case r.URL.Path == "/v1/agents/resolve/demo/bob" && r.Method == http.MethodGet:
+		case r.URL.Path == "/v1/agents/resolve/bob" && r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"detail":"resolver unavailable"}`))
 		case r.URL.Path == "/v1/workspaces/"+goneID && r.Method == http.MethodDelete:

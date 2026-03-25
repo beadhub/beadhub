@@ -35,9 +35,13 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	params := aweb.TaskListParams{}
+	statusFilter := ""
 
 	if v, _ := cmd.Flags().GetString("status"); v != "" {
-		params.Status = v
+		statusFilter = v
+		if v != "blocked" {
+			params.Status = v
+		}
 	}
 	if v, _ := cmd.Flags().GetString("type"); v != "" {
 		params.TaskType = v
@@ -56,9 +60,20 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		params.AssigneeAgentID = v
 	}
 
-	resp, err := client.TaskList(ctx, params)
-	if err != nil {
-		return fmt.Errorf("listing tasks: %w", err)
+	var resp *aweb.TaskListResponse
+	if statusFilter == "blocked" {
+		resp, err = client.TaskListBlocked(ctx)
+		if err != nil {
+			return fmt.Errorf("listing blocked tasks: %w", err)
+		}
+		for i := range resp.Tasks {
+			resp.Tasks[i].Status = "blocked"
+		}
+	} else {
+		resp, err = client.TaskList(ctx, params)
+		if err != nil {
+			return fmt.Errorf("listing tasks: %w", err)
+		}
 	}
 
 	printOutput(resp, func(v any) string {

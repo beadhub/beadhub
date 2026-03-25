@@ -9,7 +9,7 @@ This project uses `aw` for agent coordination.
 aw policy show
 aw workspace status
 aw work ready
-aw mail inbox --unread-only
+aw mail inbox
 ```
 
 ## Rules
@@ -28,8 +28,7 @@ aw mail inbox --unread-only
 ```bash
 aw mail send --to <alias> --body "message"
 aw mail send --to <alias> --subject "API design" --body "message"
-aw mail inbox --unread-only
-aw mail ack --message-id <id>
+aw mail inbox
 ```
 
 ## Using Chat

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ func TestPriorityQueueOrdersByPriority(t *testing.T) {
 	q := NewPriorityQueue()
 	q.Push(BusEvent{Priority: PriorityCoordination, Event: awid.AgentEvent{Type: awid.AgentEventWorkAvailable}})
 	q.Push(BusEvent{Priority: PriorityInterrupt, Event: awid.AgentEvent{Type: awid.AgentEventControlInterrupt}})
-	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventMailMessage}})
+	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableMail}})
 
 	evt, ok := q.Pop()
 	if !ok || evt.Priority != PriorityInterrupt {
@@ -39,8 +40,8 @@ func TestPriorityQueueOrdersByPriority(t *testing.T) {
 
 func TestPriorityQueueFIFOWithinSamePriority(t *testing.T) {
 	q := NewPriorityQueue()
-	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "first"}})
-	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventChatMessage, FromAlias: "second"}})
+	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "first"}})
+	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableChat, FromAlias: "second"}})
 
 	evt, _ := q.Pop()
 	if evt.Event.FromAlias != "first" {
@@ -105,18 +106,6 @@ func TestClassifyInterruptEvents(t *testing.T) {
 		}
 		if pri != PriorityInterrupt {
 			t.Fatalf("%s should be interrupt priority, got %d", typ, pri)
-		}
-	}
-}
-
-func TestClassifyCommunicationEvents(t *testing.T) {
-	for _, typ := range []awid.AgentEventType{awid.AgentEventMailMessage, awid.AgentEventChatMessage} {
-		pri, ok := classifyAgentEvent(awid.AgentEvent{Type: typ})
-		if !ok {
-			t.Fatalf("%s should be queued", typ)
-		}
-		if pri != PriorityCommunication {
-			t.Fatalf("%s should be communication priority, got %d", typ, pri)
 		}
 	}
 }
@@ -314,8 +303,8 @@ func TestEventBusQueuesInterruptWakeCommunicationEvents(t *testing.T) {
 
 func TestEventBusQueuesCommunicationEvents(t *testing.T) {
 	source := newFakeEventSource(
-		awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "alice"},
-		awid.AgentEvent{Type: awid.AgentEventChatMessage, FromAlias: "bob"},
+		awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "alice"},
+		awid.AgentEvent{Type: awid.AgentEventActionableChat, FromAlias: "bob"},
 	)
 	called := false
 	bus := NewEventBus(EventBusConfig{
@@ -364,7 +353,7 @@ func TestEventBusSkipsInformationalEvents(t *testing.T) {
 		awid.AgentEvent{Type: awid.AgentEventConnected},
 		awid.AgentEvent{Type: awid.AgentEventControlResume},
 		awid.AgentEvent{Type: awid.AgentEventError, Text: "some error"},
-		awid.AgentEvent{Type: awid.AgentEventMailMessage, FromAlias: "marker"},
+		awid.AgentEvent{Type: awid.AgentEventActionableMail, FromAlias: "marker"},
 	)
 	called := false
 	bus := NewEventBus(EventBusConfig{
@@ -534,22 +523,77 @@ func TestEventBusDedupesReplayByMessageIDAcrossReconnects(t *testing.T) {
 	bus.Stop()
 }
 
+type blockingEventSource struct{}
+
+func (blockingEventSource) Next(ctx context.Context) (*awid.AgentEvent, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (blockingEventSource) Close() error { return nil }
+
+func TestEventBusReconnectsWhenStreamDeadlineExpiresLocally(t *testing.T) {
+	second := newFakeEventSource(
+		awid.AgentEvent{Type: awid.AgentEventActionableMail, MessageID: "m-2", FromAlias: "alice"},
+	)
+
+	var calls atomic.Int32
+	bus := NewEventBus(EventBusConfig{
+		StreamTTL: 50 * time.Millisecond,
+		Stream: func(ctx context.Context, deadline time.Time) (awid.EventSource, error) {
+			switch calls.Add(1) {
+			case 1:
+				return blockingEventSource{}, nil
+			case 2:
+				return second, nil
+			default:
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus.Start(ctx)
+
+	select {
+	case <-bus.Queue().Ready():
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for post-deadline reconnect event")
+	}
+
+	evt, ok := bus.Queue().Pop()
+	if !ok {
+		t.Fatal("expected queued event after reconnect")
+	}
+	if evt.Event.Type != awid.AgentEventActionableMail || evt.Event.FromAlias != "alice" {
+		t.Fatalf("unexpected event after reconnect: %#v", evt.Event)
+	}
+	if calls.Load() < 2 {
+		t.Fatalf("expected at least 2 stream attempts, got %d", calls.Load())
+	}
+
+	cancel()
+	bus.Stop()
+}
+
 func TestRecentEventDeduperKeepsOnlyBoundedRecentKeys(t *testing.T) {
 	d := newRecentEventDeduper(2)
 
-	if d.Seen(awid.AgentEvent{Type: awid.AgentEventMailMessage, MessageID: "m1"}) {
+	if d.Seen(awid.AgentEvent{Type: awid.AgentEventActionableMail, MessageID: "m1"}) {
 		t.Fatal("first event should not be seen")
 	}
-	if d.Seen(awid.AgentEvent{Type: awid.AgentEventMailMessage, MessageID: "m2"}) {
+	if d.Seen(awid.AgentEvent{Type: awid.AgentEventActionableMail, MessageID: "m2"}) {
 		t.Fatal("second event should not be seen")
 	}
-	if !d.Seen(awid.AgentEvent{Type: awid.AgentEventMailMessage, MessageID: "m1"}) {
+	if !d.Seen(awid.AgentEvent{Type: awid.AgentEventActionableMail, MessageID: "m1"}) {
 		t.Fatal("replayed event should be seen")
 	}
-	if d.Seen(awid.AgentEvent{Type: awid.AgentEventMailMessage, MessageID: "m3"}) {
+	if d.Seen(awid.AgentEvent{Type: awid.AgentEventActionableMail, MessageID: "m3"}) {
 		t.Fatal("third distinct event should not be seen")
 	}
-	if d.Seen(awid.AgentEvent{Type: awid.AgentEventMailMessage, MessageID: "m1"}) {
+	if d.Seen(awid.AgentEvent{Type: awid.AgentEventActionableMail, MessageID: "m1"}) {
 		t.Fatal("oldest key should have been evicted")
 	}
 }
@@ -577,7 +621,7 @@ func TestPriorityQueueAutofeedIsLowestPriority(t *testing.T) {
 	q := NewPriorityQueue()
 	q.Push(BusEvent{Priority: PriorityAutofeed, Event: awid.AgentEvent{Type: "autofeed"}})
 	q.Push(BusEvent{Priority: PriorityCoordination, Event: awid.AgentEvent{Type: awid.AgentEventWorkAvailable}})
-	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventMailMessage}})
+	q.Push(BusEvent{Priority: PriorityCommunication, Event: awid.AgentEvent{Type: awid.AgentEventActionableMail}})
 
 	evt, _ := q.Pop()
 	if evt.Priority != PriorityCommunication {

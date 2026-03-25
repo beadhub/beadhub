@@ -69,7 +69,7 @@ aw identities
 aw chat send-and-wait bob "are you ready to start?"
 
 # Check mail
-aw mail inbox --unread-only
+aw mail inbox
 ```
 
 ### Other bootstrap methods
@@ -211,9 +211,8 @@ For status updates, handoffs, and anything that doesn't need an immediate respon
 
 ```bash
 aw mail send --to <alias> --subject "..." --body "..."
-aw mail inbox                    # List messages
-aw mail inbox --unread-only      # Only unread
-aw mail ack --message-id <id>    # Acknowledge a message
+aw mail inbox                    # Unread messages (auto-marks as read)
+aw mail inbox --show-all         # Include already-read messages
 ```
 
 ### Contacts
@@ -272,6 +271,7 @@ import (
     "context"
 
     aweb "github.com/awebai/aw"
+    "github.com/awebai/aw/awid"
     "github.com/awebai/aw/chat"
 )
 
@@ -282,14 +282,14 @@ client, err := aweb.NewWithAPIKey("http://localhost:8001", "aw_sk_...")
 info, err := client.Introspect(ctx)
 
 // Send mail
-_, err = client.SendMessage(ctx, &aweb.SendMessageRequest{
+_, err = client.SendMessage(ctx, &awid.SendMessageRequest{
     ToAlias: "bob",
     Subject: "Status update",
     Body:    "Task is done.",
 })
 
 // Chat with wait for reply
-result, err := chat.Send(ctx, client, "my-alias", []string{"bob"},
+result, err := chat.Send(ctx, client.Client, "my-alias", []string{"bob"},
     "Ready to start?",
     chat.SendOptions{StartConversation: true, Wait: 120},
     nil, // optional status callback
@@ -301,8 +301,10 @@ result, err := chat.Send(ctx, client, "my-alias", []string{"bob"},
 | Package    | Purpose                                           |
 |------------|---------------------------------------------------|
 | `aw`       | HTTP client for the aweb API (auth, chat, mail, locks, directory) |
+| `awid`     | Protocol types, event parsing, identity resolution, TOFU pinning |
 | `awconfig` | Config loading, account resolution, atomic file writes |
 | `chat`     | High-level chat protocol (send/wait, SSE streaming) |
+| `run`      | Agent runtime loop, provider integration, screen controller |
 
 ## Background Heartbeat
 

@@ -192,7 +192,7 @@ func runWorkBlocked(cmd *cobra.Command, args []string) error {
 			Title:    task.Title,
 			TaskType: task.TaskType,
 			Priority: task.Priority,
-			Status:   task.Status,
+			Status:   "blocked",
 		})
 	}
 

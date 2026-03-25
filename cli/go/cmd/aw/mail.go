@@ -82,13 +82,13 @@ var mailSendCmd = &cobra.Command{
 // mail inbox
 
 var (
-	mailInboxUnreadOnly bool
-	mailInboxLimit      int
+	mailInboxShowAll bool
+	mailInboxLimit   int
 )
 
 var mailInboxCmd = &cobra.Command{
 	Use:   "inbox",
-	Short: "List inbox messages",
+	Short: "List inbox messages (unread only by default)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -98,11 +98,17 @@ var mailInboxCmd = &cobra.Command{
 			return err
 		}
 		resp, err := c.Inbox(ctx, awid.InboxParams{
-			UnreadOnly: mailInboxUnreadOnly,
+			UnreadOnly: !mailInboxShowAll,
 			Limit:      mailInboxLimit,
 		})
 		if err != nil {
 			return err
+		}
+		// Mark all unread messages as read — seeing them means they're read.
+		for _, msg := range resp.Messages {
+			if msg.ReadAt == nil && msg.MessageID != "" {
+				_, _ = c.AckMessage(ctx, msg.MessageID)
+			}
 		}
 		logsDir := defaultLogsDir()
 		for _, msg := range resp.Messages {
@@ -142,45 +148,15 @@ var mailInboxCmd = &cobra.Command{
 	},
 }
 
-// mail ack
-
-var mailAckMessageID string
-
-var mailAckCmd = &cobra.Command{
-	Use:   "ack",
-	Short: "Acknowledge a message",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if mailAckMessageID == "" {
-			return usageError("missing required flag: --message-id")
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		c, err := resolveClient()
-		if err != nil {
-			return err
-		}
-		resp, err := c.AckMessage(ctx, mailAckMessageID)
-		if err != nil {
-			return err
-		}
-		printOutput(resp, formatMailAck)
-		return nil
-	},
-}
-
 func init() {
 	mailSendCmd.Flags().StringVar(&mailSendTo, "to", "", "Recipient address")
 	mailSendCmd.Flags().StringVar(&mailSendSubject, "subject", "", "Subject")
 	mailSendCmd.Flags().StringVar(&mailSendBody, "body", "", "Body")
 	mailSendCmd.Flags().StringVar(&mailSendPriority, "priority", "normal", "Priority: low|normal|high|urgent")
 
-	mailInboxCmd.Flags().BoolVar(&mailInboxUnreadOnly, "unread-only", false, "Only unread")
+	mailInboxCmd.Flags().BoolVar(&mailInboxShowAll, "show-all", false, "Show all messages including already-read")
 	mailInboxCmd.Flags().IntVar(&mailInboxLimit, "limit", 50, "Max messages")
 
-	mailAckCmd.Flags().StringVar(&mailAckMessageID, "message-id", "", "Message ID to acknowledge")
-
-	mailCmd.AddCommand(mailSendCmd, mailInboxCmd, mailAckCmd)
+	mailCmd.AddCommand(mailSendCmd, mailInboxCmd)
 	rootCmd.AddCommand(mailCmd)
 }

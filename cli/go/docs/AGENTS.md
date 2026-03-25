@@ -39,13 +39,8 @@ Priority levels: `low`, `normal` (default), `high`, `urgent`.
 **Read:**
 ```bash
 aw mail inbox                  # all recent messages (default: 50)
-aw mail inbox --unread-only    # only unread
+aw mail inbox
 aw mail inbox --limit 10       # limit results
-```
-
-**Acknowledge:**
-```bash
-aw mail ack --message-id <id>  # mark as read
 ```
 
 ## Chat (Real-Time Conversations)

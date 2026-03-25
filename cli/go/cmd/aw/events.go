@@ -29,12 +29,13 @@ var eventsStreamCmd = &cobra.Command{
 			return err
 		}
 
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 
+		ctx := baseCtx
 		if eventsStreamTimeout > 0 {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, time.Duration(eventsStreamTimeout)*time.Second)
+			ctx, cancel = context.WithTimeout(baseCtx, time.Duration(eventsStreamTimeout)*time.Second)
 			defer cancel()
 		}
 
@@ -43,9 +44,32 @@ var eventsStreamCmd = &cobra.Command{
 			deadline = dl
 		}
 
-		stream, err := client.EventStream(ctx, deadline)
-		if err != nil {
-			return err
+		type streamResult struct {
+			stream *awid.AgentEventStream
+			err    error
+		}
+		openCtx, cancelOpen := context.WithCancel(baseCtx)
+		defer cancelOpen()
+
+		streamCh := make(chan streamResult, 1)
+		go func() {
+			stream, err := client.EventStream(openCtx, deadline)
+			streamCh <- streamResult{stream: stream, err: err}
+		}()
+
+		var stream *awid.AgentEventStream
+		select {
+		case <-ctx.Done():
+			cancelOpen()
+			return nil
+		case result := <-streamCh:
+			if result.err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return result.err
+			}
+			stream = result.stream
 		}
 		defer stream.Close()
 
@@ -75,10 +99,6 @@ func printEventText(ev *awid.AgentEvent) {
 	switch ev.Type {
 	case awid.AgentEventConnected:
 		fmt.Printf("[connected] agent_id=%s project_id=%s\n", ev.AgentID, ev.ProjectID)
-	case awid.AgentEventMailMessage:
-		fmt.Printf("[mail_message] from=%s message_id=%s subject=%q\n", ev.FromAlias, ev.MessageID, ev.Subject)
-	case awid.AgentEventChatMessage:
-		fmt.Printf("[chat_message] from=%s session_id=%s message_id=%s\n", ev.FromAlias, ev.SessionID, ev.MessageID)
 	case awid.AgentEventActionableMail:
 		fmt.Printf(
 			"[actionable_mail] from=%s wake_mode=%s unread=%d message_id=%s subject=%q\n",

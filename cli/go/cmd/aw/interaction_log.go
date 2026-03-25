@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/awebai/aw/awconfig"
+	awrun "github.com/awebai/aw/run"
 )
 
 const interactionLogFileName = "interaction-log.jsonl"
@@ -184,19 +185,19 @@ func formatInteractionEntry(entry InteractionEntry) string {
 	case interactionKindAgent:
 		return text
 	case interactionKindChatIn:
-		return fmt.Sprintf("<- %s (chat): %s", interactionParty(entry.From, "someone"), text)
+		return fmt.Sprintf("%s: %s", awrun.FormatCommLabel("from", interactionParty(entry.From, "someone"), "chat"), text)
 	case interactionKindChatOut:
-		return fmt.Sprintf("-> %s (chat): %s", interactionParty(entry.To, "someone"), text)
+		return fmt.Sprintf("%s: %s", awrun.FormatCommLabel("to", interactionParty(entry.To, "someone"), "chat"), text)
 	case interactionKindMailIn:
 		if subject := strings.TrimSpace(entry.Subject); subject != "" {
-			return fmt.Sprintf("<- %s (mail): %s — %s", interactionParty(entry.From, "someone"), subject, text)
+			return fmt.Sprintf("%s: %s — %s", awrun.FormatCommLabel("from", interactionParty(entry.From, "someone"), "mail"), subject, text)
 		}
-		return fmt.Sprintf("<- %s (mail): %s", interactionParty(entry.From, "someone"), text)
+		return fmt.Sprintf("%s: %s", awrun.FormatCommLabel("from", interactionParty(entry.From, "someone"), "mail"), text)
 	case interactionKindMailOut:
 		if subject := strings.TrimSpace(entry.Subject); subject != "" {
-			return fmt.Sprintf("-> %s (mail): %s — %s", interactionParty(entry.To, "someone"), subject, text)
+			return fmt.Sprintf("%s: %s — %s", awrun.FormatCommLabel("to", interactionParty(entry.To, "someone"), "mail"), subject, text)
 		}
-		return fmt.Sprintf("-> %s (mail): %s", interactionParty(entry.To, "someone"), text)
+		return fmt.Sprintf("%s: %s", awrun.FormatCommLabel("to", interactionParty(entry.To, "someone"), "mail"), text)
 	default:
 		return text
 	}
@@ -245,18 +246,22 @@ func boldInteractionCommPrefix(line string, ansi bool) string {
 	if !ansi {
 		return line
 	}
-	if !strings.HasPrefix(line, "<- ") && !strings.HasPrefix(line, "-> ") {
+	indent := leadingInteractionWhitespace(line)
+	trimmed := strings.TrimPrefix(line, indent)
+	if !strings.HasPrefix(trimmed, "• from ") && !strings.HasPrefix(trimmed, "• to ") {
 		return line
 	}
-	rest := line[3:]
-	aliasEnd := len(rest)
-	for i, r := range rest {
-		if r == ' ' || r == ':' {
-			aliasEnd = i
-			break
-		}
+	headEnd := len(trimmed)
+	if idx := strings.Index(trimmed, ":"); idx >= 0 {
+		headEnd = idx
 	}
-	return "\x1b[1m" + line[:3+aliasEnd] + "\x1b[0m" + line[3+aliasEnd:]
+	head := trimmed[:headEnd]
+	tail := trimmed[headEnd:]
+	bullet := "\x1b[32m•\x1b[0m"
+	if strings.HasPrefix(head, "•") {
+		head = bullet + "\x1b[1m" + strings.TrimPrefix(head, "•") + "\x1b[0m"
+	}
+	return indent + head + tail
 }
 
 func isInteractionComm(kind string) bool {
@@ -272,7 +277,7 @@ func wrapInteractionCommLine(line string, width int) string {
 	if width <= 0 || utf8.RuneCountInString(line) <= width {
 		return line
 	}
-	const continuationIndent = "   "
+	continuationIndent := interactionCommContinuationIndent(line)
 	parts := strings.SplitAfter(line, " ")
 	if len(parts) == 0 {
 		return line
@@ -300,4 +305,25 @@ func wrapInteractionCommLine(line string, width int) string {
 		return line
 	}
 	return strings.Join(lines, "\n")
+}
+
+func interactionCommContinuationIndent(line string) string {
+	indent := leadingInteractionWhitespace(line)
+	trimmed := strings.TrimPrefix(line, indent)
+	switch {
+	case strings.HasPrefix(trimmed, "• from "):
+		return indent + strings.Repeat(" ", len("• from "))
+	case strings.HasPrefix(trimmed, "• to "):
+		return indent + strings.Repeat(" ", len("• to "))
+	default:
+		return indent + "   "
+	}
+}
+
+func leadingInteractionWhitespace(s string) string {
+	idx := 0
+	for idx < len(s) && (s[idx] == ' ' || s[idx] == '\t') {
+		idx++
+	}
+	return s[:idx]
 }

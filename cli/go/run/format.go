@@ -55,10 +55,14 @@ func formatToolResultLines(text string) []string {
 	formatted := make([]string, 0, min(len(lines), maxLines)+1)
 	for i, line := range lines {
 		if i >= maxLines {
-			formatted = append(formatted, fmt.Sprintf("  = ... +%d lines", len(lines)-maxLines))
+			formatted = append(formatted, fmt.Sprintf("    ... +%d lines", len(lines)-maxLines))
 			break
 		}
-		formatted = append(formatted, "  = "+truncateLine(line, 150))
+		prefix := "    "
+		if i == 0 {
+			prefix = "  = "
+		}
+		formatted = append(formatted, prefix+truncateLine(line, 150))
 	}
 	return formatted
 }
@@ -89,7 +93,7 @@ func formatAWCoordinationCommand(command string) (string, bool) {
 		if alias == "" {
 			return "", false
 		}
-		return "-> " + alias + " (mail)", true
+		return FormatCommLabel("to", alias, "mail"), true
 	case "chat":
 		switch fields[2] {
 		case "send-and-wait", "send-and-leave":
@@ -97,13 +101,34 @@ func formatAWCoordinationCommand(command string) (string, bool) {
 			if alias == "" {
 				return "", false
 			}
-			return "-> " + alias + " (chat)", true
+			return FormatCommLabel("to", alias, "chat"), true
 		default:
 			return "", false
 		}
 	default:
 		return "", false
 	}
+}
+
+func FormatCommLabel(direction string, alias string, channel string) string {
+	alias = strings.TrimSpace(alias)
+	channel = strings.TrimSpace(channel)
+	direction = strings.TrimSpace(direction)
+	label := "•"
+	if direction != "" {
+		label += " " + direction
+	}
+	if alias != "" {
+		label += " " + alias
+	}
+	if channel != "" {
+		label += " (" + channel + ")"
+	}
+	return label
+}
+
+func isIncomingCommDisplay(display string) bool {
+	return strings.HasPrefix(strings.TrimSpace(display), "• from ")
 }
 
 func findFlagValue(fields []string, flag string) string {

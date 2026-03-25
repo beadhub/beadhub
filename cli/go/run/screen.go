@@ -2,6 +2,7 @@ package run
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -54,16 +55,17 @@ type ScreenController struct {
 var _ UI = (*ScreenController)(nil)
 
 type screenStyles struct {
-	prompt    lipgloss.Style
-	separator lipgloss.Style
-	tool      lipgloss.Style
-	toolMuted lipgloss.Style
-	comms     lipgloss.Style
-	result    lipgloss.Style
-	done      lipgloss.Style
-	info      lipgloss.Style
-	status    lipgloss.Style
-	hint      lipgloss.Style
+	prompt      lipgloss.Style
+	separator   lipgloss.Style
+	tool        lipgloss.Style
+	toolMuted   lipgloss.Style
+	commsBullet lipgloss.Style
+	comms       lipgloss.Style
+	result      lipgloss.Style
+	done        lipgloss.Style
+	info        lipgloss.Style
+	status      lipgloss.Style
+	hint        lipgloss.Style
 }
 
 const screenFooterBaseLines = 3
@@ -426,6 +428,12 @@ func (s *ScreenController) handleInlineInput(data []byte) {
 			continue
 		}
 
+		if consumed, ok := promptNewlineSequenceLen(data[i:]); ok {
+			s.handleInlineRuneLocked('\n')
+			i += consumed
+			continue
+		}
+
 		switch b {
 		case 0x03:
 			if s.exitConfirm {
@@ -441,8 +449,11 @@ func (s *ScreenController) handleInlineInput(data []byte) {
 				s.handleExitPromptRequested()
 			}
 			i++
-		case '\r', '\n':
+		case '\r':
 			s.handleInlineSubmitLocked()
+			i++
+		case '\n':
+			s.handleInlineRuneLocked('\n')
 			i++
 		case 0x7f, 0x08:
 			s.handleInlineBackspaceLocked()
@@ -496,6 +507,19 @@ func (s *ScreenController) handleInlineInput(data []byte) {
 			i += size
 		}
 	}
+}
+
+func promptNewlineSequenceLen(data []byte) (int, bool) {
+	sequences := [][]byte{
+		[]byte("\x1b[13;2u"),
+		[]byte("\x1b[27;2;13~"),
+	}
+	for _, seq := range sequences {
+		if bytes.HasPrefix(data, seq) {
+			return len(seq), true
+		}
+	}
+	return 0, false
 }
 
 func (s *ScreenController) handleInlineEscapeLocked() {
@@ -894,14 +918,15 @@ func (s *ScreenController) handleExitConfirmed() {
 
 func newScreenStyles() screenStyles {
 	return screenStyles{
-		prompt:    lipgloss.NewStyle().Bold(true),
-		separator: lipgloss.NewStyle(),
-		tool:      lipgloss.NewStyle(),
-		toolMuted: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "244"}),
-		comms:     lipgloss.NewStyle().Bold(true),
-		result:    lipgloss.NewStyle(),
-		done:      lipgloss.NewStyle(),
-		info:      lipgloss.NewStyle(),
+		prompt:      lipgloss.NewStyle().Bold(true),
+		separator:   lipgloss.NewStyle(),
+		tool:        lipgloss.NewStyle(),
+		toolMuted:   lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "244"}),
+		commsBullet: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "34", Dark: "42"}),
+		comms:       lipgloss.NewStyle().Bold(true),
+		result:      lipgloss.NewStyle(),
+		done:        lipgloss.NewStyle(),
+		info:        lipgloss.NewStyle(),
 		status: lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "252"}).
 			Background(lipgloss.AdaptiveColor{Light: "252", Dark: "236"}).
@@ -939,9 +964,8 @@ func buildPromptLayout(promptLabel string, value string, cursor int, width int) 
 	}
 
 	promptWidth := lipgloss.Width(promptLabel)
-
 	continuation := strings.Repeat(" ", promptWidth)
-	runes := []rune(strings.ReplaceAll(value, "\n", " "))
+	runes := []rune(value)
 	if cursor < 0 {
 		cursor = 0
 	}
@@ -954,44 +978,48 @@ func buildPromptLayout(promptLabel string, value string, cursor int, width int) 
 		positions:   make([]promptCursorPos, len(runes)+1),
 	}
 
-	lineStarts := []int{0}
-	linePrefixes := []string{promptLabel}
+	layout.positions[0] = promptCursorPos{line: 0, col: promptWidth}
 	currentLine := 0
 	currentCol := promptWidth
-	layout.positions[0] = promptCursorPos{line: 0, col: promptWidth}
+	lineStart := 0
+	var lineText strings.Builder
+	appendLine := func(end int) {
+		prefix := promptLabel
+		if len(layout.lines) > 0 {
+			prefix = continuation
+		}
+		text := lineText.String()
+		layout.visualLines = append(layout.visualLines, promptVisualLine{start: lineStart, end: end, text: text})
+		layout.lines = append(layout.lines, prefix+text)
+		lineText.Reset()
+	}
 
 	for i, r := range runes {
+		if r == '\n' {
+			appendLine(i)
+			currentLine++
+			lineStart = i + 1
+			currentCol = promptWidth
+			layout.positions[i+1] = promptCursorPos{line: currentLine, col: currentCol}
+			continue
+		}
+
 		runeWidth := lipgloss.Width(string(r))
 		if runeWidth <= 0 {
 			runeWidth = 1
 		}
 		if currentCol+runeWidth > width && currentCol > promptWidth {
-			lineStarts = append(lineStarts, i)
-			linePrefixes = append(linePrefixes, continuation)
+			appendLine(i)
 			currentLine++
+			lineStart = i
 			currentCol = promptWidth
 			layout.positions[i] = promptCursorPos{line: currentLine, col: currentCol}
 		}
+		lineText.WriteRune(r)
 		currentCol += runeWidth
 		layout.positions[i+1] = promptCursorPos{line: currentLine, col: currentCol}
 	}
-
-	layout.visualLines = make([]promptVisualLine, 0, len(lineStarts))
-	layout.lines = make([]string, 0, len(lineStarts))
-	for i, start := range lineStarts {
-		end := len(runes)
-		if i+1 < len(lineStarts) {
-			end = lineStarts[i+1]
-		}
-		text := string(runes[start:end])
-		layout.visualLines = append(layout.visualLines, promptVisualLine{start: start, end: end, text: text})
-		layout.lines = append(layout.lines, linePrefixes[i]+text)
-	}
-	if len(layout.lines) == 0 {
-		layout.lines = []string{promptLabel}
-		layout.visualLines = []promptVisualLine{{start: 0, end: 0, text: ""}}
-		layout.positions = []promptCursorPos{{line: 0, col: promptWidth}}
-	}
+	appendLine(len(runes))
 
 	layout.cursorLine = layout.positions[cursor].line
 	layout.cursorCol = layout.positions[cursor].col
@@ -1149,8 +1177,8 @@ func leadingWhitespace(s string) string {
 
 func continuationIndent(line string) string {
 	trimmed := strings.TrimLeft(line, " \t")
-	if strings.HasPrefix(trimmed, "<- ") || strings.HasPrefix(trimmed, "-> ") {
-		return leadingWhitespace(line) + "   "
+	if isCommLine(trimmed) {
+		return screenCommContinuationIndent(line)
 	}
 	if strings.HasPrefix(trimmed, ">_ ") {
 		return leadingWhitespace(line) + "   "
@@ -1235,21 +1263,19 @@ func styleScreenToolClosingParen(line string, styles screenStyles) string {
 func styleScreenCommLine(line string, styles screenStyles) string {
 	indent := leadingWhitespace(line)
 	trimmed := strings.TrimPrefix(line, indent)
-	if !strings.HasPrefix(trimmed, "<- ") && !strings.HasPrefix(trimmed, "-> ") {
+	if !isCommLine(trimmed) {
 		return line
 	}
 
-	marker := trimmed[:3]
-	rest := trimmed[3:]
-	aliasEnd := len(rest)
-	for i, r := range rest {
-		if r == ' ' || r == ':' {
-			aliasEnd = i
-			break
-		}
+	headEnd := len(trimmed)
+	if idx := strings.Index(trimmed, ":"); idx >= 0 {
+		headEnd = idx
 	}
-	head := marker + rest[:aliasEnd]
-	tail := rest[aliasEnd:]
+	head := trimmed[:headEnd]
+	tail := trimmed[headEnd:]
+	if strings.HasPrefix(head, "•") {
+		return indent + styles.commsBullet.Render("•") + styles.comms.Render(strings.TrimPrefix(head, "•")) + tail
+	}
 	return indent + styles.comms.Render(head) + tail
 }
 
@@ -1264,7 +1290,7 @@ func screenLineStyleKind(line string) string {
 		return "tool"
 	case strings.HasPrefix(line, "  ->"), strings.HasPrefix(line, "  ="):
 		return "result"
-	case strings.HasPrefix(trimmed, "<- ") || strings.HasPrefix(trimmed, "-> "):
+	case isCommLine(trimmed):
 		return "comms"
 	case strings.HasPrefix(trimmed, "->"):
 		return "result"
@@ -1281,6 +1307,23 @@ func screenLineStyleKind(line string) string {
 	}
 }
 
+func isCommLine(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "• from ") || strings.HasPrefix(trimmed, "• to ")
+}
+
+func screenCommContinuationIndent(line string) string {
+	indent := leadingWhitespace(line)
+	trimmed := strings.TrimPrefix(line, indent)
+	switch {
+	case strings.HasPrefix(trimmed, "• from "):
+		return indent + strings.Repeat(" ", len("• from "))
+	case strings.HasPrefix(trimmed, "• to "):
+		return indent + strings.Repeat(" ", len("• to "))
+	default:
+		return indent + "   "
+	}
+}
+
 func isToolDetailLine(line string) bool {
 	indent := leadingWhitespace(line)
 	if len(indent) < 2 {
@@ -1290,7 +1333,7 @@ func isToolDetailLine(line string) bool {
 	if trimmed == "" {
 		return false
 	}
-	if strings.HasPrefix(trimmed, ">") || strings.HasPrefix(trimmed, "<-") || strings.HasPrefix(trimmed, "->") {
+	if strings.HasPrefix(trimmed, ">") || strings.HasPrefix(trimmed, "<-") || strings.HasPrefix(trimmed, "->") || isCommLine(trimmed) {
 		return false
 	}
 	return strings.Contains(trimmed, "=")

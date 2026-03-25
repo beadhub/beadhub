@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	aweb "github.com/awebai/aw"
+	"github.com/awebai/aw/awid"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +43,9 @@ var lockAcquireCmd = &cobra.Command{
 			TTLSeconds:  lockAcquireTTLSeconds,
 		})
 		if err != nil {
+			if unsupportedErr := normalizeReservationMutationError("acquire", err); unsupportedErr != nil {
+				return unsupportedErr
+			}
 			return err
 		}
 		printOutput(resp, formatLockAcquire)
@@ -76,6 +81,9 @@ var lockRenewCmd = &cobra.Command{
 			TTLSeconds:  lockRenewTTLSeconds,
 		})
 		if err != nil {
+			if unsupportedErr := normalizeReservationMutationError("renew", err); unsupportedErr != nil {
+				return unsupportedErr
+			}
 			return err
 		}
 		printOutput(resp, formatLockRenew)
@@ -107,6 +115,9 @@ var lockReleaseCmd = &cobra.Command{
 			ResourceKey: lockReleaseResourceKey,
 		})
 		if err != nil {
+			if unsupportedErr := normalizeReservationMutationError("release", err); unsupportedErr != nil {
+				return unsupportedErr
+			}
 			return err
 		}
 		printOutput(resp, formatLockRelease)
@@ -134,6 +145,9 @@ var lockRevokeCmd = &cobra.Command{
 			Prefix: lockRevokePrefix,
 		})
 		if err != nil {
+			if unsupportedErr := normalizeReservationMutationError("revoke", err); unsupportedErr != nil {
+				return unsupportedErr
+			}
 			return err
 		}
 		printOutput(resp, formatLockRevoke)
@@ -181,4 +195,12 @@ func init() {
 
 	lockCmd.AddCommand(lockAcquireCmd, lockRenewCmd, lockReleaseCmd, lockRevokeCmd, lockListCmd)
 	rootCmd.AddCommand(lockCmd)
+}
+
+func normalizeReservationMutationError(action string, err error) error {
+	code, ok := awid.HTTPStatusCode(err)
+	if !ok || (code != 404 && code != 405) {
+		return nil
+	}
+	return fmt.Errorf("lock %s is not supported by the current backend; only `aw lock list` is currently available", action)
 }

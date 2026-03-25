@@ -32,17 +32,6 @@ func TestParseAgentEvent(t *testing.T) {
 			},
 		},
 		{
-			name:      "chat",
-			eventName: "chat_message",
-			data:      `{"type":"chat_message","message_id":"m1","from_alias":"mia","session_id":"s1"}`,
-			check: func(t *testing.T, evt AgentEvent) {
-				t.Helper()
-				if evt.Type != AgentEventChatMessage || evt.MessageID != "m1" || evt.FromAlias != "mia" || evt.SessionID != "s1" {
-					t.Fatalf("unexpected chat event: %#v", evt)
-				}
-			},
-		},
-		{
 			name:      "actionable mail",
 			eventName: "actionable_mail",
 			data:      `{"type":"actionable_mail","message_id":"m2","from_alias":"alice","subject":"hello","wake_mode":"prompt","unread_count":3}`,

@@ -30,10 +30,11 @@ func resolveCurrentIdentityID(ctx context.Context, client *aweb.Client, _ *awcon
 	if err != nil {
 		return "", err
 	}
-	if intro.IdentityID == "" {
+	identityID := intro.CurrentIdentityID()
+	if identityID == "" {
 		return "", fmt.Errorf("cannot determine identity id: API key is not bound to an identity")
 	}
-	return intro.IdentityID, nil
+	return identityID, nil
 }
 
 var identitiesCmd = &cobra.Command{
@@ -88,9 +89,10 @@ var agentAccessModeCmd = &cobra.Command{
 				return err
 			}
 			for _, a := range identities.Identities {
-				if a.IdentityID == agentID {
+				currentID := a.CurrentIdentityID()
+				if currentID == agentID {
 					printOutput(map[string]string{
-						"identity_id": a.IdentityID,
+						"identity_id": currentID,
 						"alias":       firstNonEmpty(a.Name, a.Alias),
 						"access_mode": a.AccessMode,
 					}, formatAgentAccessMode)
@@ -150,9 +152,10 @@ var identityReachabilityCmd = &cobra.Command{
 				return err
 			}
 			for _, a := range identities.Identities {
-				if a.IdentityID == agentID {
+				currentID := a.CurrentIdentityID()
+				if currentID == agentID {
 					printOutput(map[string]string{
-						"identity_id":          a.IdentityID,
+						"identity_id":          currentID,
 						"alias":                firstNonEmpty(a.Name, a.Alias),
 						"address_reachability": a.AddressReachability,
 					}, formatIdentityReachability)

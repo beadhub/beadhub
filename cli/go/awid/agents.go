@@ -4,7 +4,8 @@ import "context"
 
 // IdentityView is returned by GET /v1/agents.
 type IdentityView struct {
-	IdentityID          string `json:"identity_id"`
+	IdentityID          string `json:"identity_id,omitempty"`
+	AgentID             string `json:"agent_id,omitempty"`
 	Alias               string `json:"alias"`
 	Name                string `json:"name,omitempty"`
 	HumanName           string `json:"human_name,omitempty"`
@@ -18,15 +19,26 @@ type IdentityView struct {
 	Lifetime            string `json:"lifetime,omitempty"`
 }
 
+func (v IdentityView) CurrentIdentityID() string {
+	if v.IdentityID != "" {
+		return v.IdentityID
+	}
+	return v.AgentID
+}
+
 type ListIdentitiesResponse struct {
 	ProjectID  string         `json:"project_id"`
 	Identities []IdentityView `json:"identities,omitempty"`
+	Agents     []IdentityView `json:"agents,omitempty"`
 }
 
 func (c *Client) ListIdentities(ctx context.Context) (*ListIdentitiesResponse, error) {
 	var out ListIdentitiesResponse
 	if err := c.Get(ctx, "/v1/agents", &out); err != nil {
 		return nil, err
+	}
+	if len(out.Identities) == 0 && len(out.Agents) != 0 {
+		out.Identities = out.Agents
 	}
 	return &out, nil
 }
@@ -37,9 +49,17 @@ type PatchIdentityRequest struct {
 }
 
 type PatchIdentityResponse struct {
-	IdentityID          string `json:"identity_id"`
+	IdentityID          string `json:"identity_id,omitempty"`
+	AgentID             string `json:"agent_id,omitempty"`
 	AccessMode          string `json:"access_mode,omitempty"`
 	AddressReachability string `json:"address_reachability,omitempty"`
+}
+
+func (r PatchIdentityResponse) CurrentIdentityID() string {
+	if r.IdentityID != "" {
+		return r.IdentityID
+	}
+	return r.AgentID
 }
 
 func (c *Client) PatchIdentity(ctx context.Context, identityID string, req *PatchIdentityRequest) (*PatchIdentityResponse, error) {

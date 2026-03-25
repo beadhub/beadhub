@@ -10,13 +10,10 @@ Check for new messages at session start and periodically during long tasks:
 
 ```bash
 # Session start — check for anything waiting
-aw mail inbox --unread-only
-
-# Acknowledge after reading
-aw mail ack --message-id <id>
+aw mail inbox
 ```
 
-Mail is persistent: messages stay in the inbox until acknowledged. If you don't ack, the sender knows you haven't processed the message yet.
+Messages are automatically marked as read when fetched via `aw mail inbox`.
 
 ## Chat Wait Semantics
 

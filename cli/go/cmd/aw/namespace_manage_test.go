@@ -55,7 +55,9 @@ func TestAwNamespaceAdd(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces/external":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces/external":
 			if r.Method != http.MethodPost {
 				t.Fatalf("method=%s", r.Method)
 			}
@@ -114,7 +116,9 @@ func TestAwNamespaceAddTextOutput(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces/external":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces/external":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"namespace_id":  "ns-1",
 				"full_name":     "acme.com",
@@ -166,24 +170,26 @@ func TestAwNamespaceList(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces":
 			if r.Method != http.MethodGet {
 				t.Fatalf("method=%s", r.Method)
 			}
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
-					"namespace_id":          "ns-1",
-					"full_name":             "myteam.aweb.ai",
-					"is_external":           false,
-					"registration_status":   "registered",
-					"published_agent_count": 3,
+					"namespace_id":            "ns-1",
+					"full_name":               "myteam.aweb.ai",
+					"is_external":             false,
+					"registration_status":     "registered",
+					"assigned_identity_count": 3,
 				},
 				{
-					"namespace_id":          "ns-2",
-					"full_name":             "acme.com",
-					"is_external":           true,
-					"registration_status":   "unregistered",
-					"published_agent_count": 0,
+					"namespace_id":            "ns-2",
+					"full_name":               "acme.com",
+					"is_external":             true,
+					"registration_status":     "unregistered",
+					"assigned_identity_count": 0,
 				},
 			})
 		case "/v1/agents/heartbeat":
@@ -216,24 +222,78 @@ func TestAwNamespaceList(t *testing.T) {
 	}
 }
 
+func TestAwNamespaceListPreservesAPIBaseURL(t *testing.T) {
+	t.Parallel()
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces":
+			if r.Method != http.MethodGet {
+				t.Fatalf("method=%s", r.Method)
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"full_name":               "myteam.aweb.ai",
+					"is_external":             false,
+					"registration_status":     "registered",
+					"assigned_identity_count": 3,
+				},
+			})
+		case "/v1/auth/introspect":
+			t.Fatalf("unexpected introspect without /api prefix: %s", r.URL.Path)
+		case "/v1/projects/p-1/namespaces":
+			t.Fatalf("unexpected namespace list without /api prefix: %s", r.URL.Path)
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	}))
+
+	bin, cfgPath, tmp := testNamespaceConfig(t, server.URL+"/api")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	run := exec.CommandContext(ctx, bin, "project", "namespace", "list", "--json")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_URL=",
+		"AWEB_API_KEY=",
+	)
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+
+	if !strings.Contains(string(out), "myteam.aweb.ai") {
+		t.Fatalf("expected myteam.aweb.ai in output:\n%s", string(out))
+	}
+}
+
 func TestAwNamespaceListTextOutput(t *testing.T) {
 	t.Parallel()
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
-					"full_name":             "myteam.aweb.ai",
-					"is_external":           false,
-					"registration_status":   "registered",
-					"published_agent_count": 3,
+					"full_name":               "myteam.aweb.ai",
+					"is_external":             false,
+					"registration_status":     "registered",
+					"assigned_identity_count": 3,
 				},
 				{
-					"full_name":             "acme.com",
-					"is_external":           true,
-					"registration_status":   "unregistered",
-					"published_agent_count": 0,
+					"full_name":               "acme.com",
+					"is_external":             true,
+					"registration_status":     "unregistered",
+					"assigned_identity_count": 0,
 				},
 			})
 		case "/v1/agents/heartbeat":
@@ -277,11 +337,13 @@ func TestAwNamespaceVerify(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"namespace_id": "ns-1", "full_name": "acme.com"},
 			})
-		case "/api/v1/namespaces/ns-1/verify":
+		case "/api/v1/projects/p-1/namespaces/ns-1/verify":
 			if r.Method != http.MethodPost {
 				t.Fatalf("method=%s", r.Method)
 			}
@@ -333,7 +395,9 @@ func TestAwNamespaceVerifyDNSFailure(t *testing.T) {
 
 			server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case "/api/v1/namespaces":
+				case "/v1/auth/introspect":
+					_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+				case "/api/v1/projects/p-1/namespaces":
 					_ = json.NewEncoder(w).Encode([]map[string]any{
 						{
 							"namespace_id":  "ns-1",
@@ -342,7 +406,7 @@ func TestAwNamespaceVerifyDNSFailure(t *testing.T) {
 							"dns_txt_value": "aweb=v1; controller=did:key:z6Mkf;",
 						},
 					})
-				case "/api/v1/namespaces/ns-1/verify":
+				case "/api/v1/projects/p-1/namespaces/ns-1/verify":
 					w.WriteHeader(code)
 					_, _ = w.Write([]byte(`{"error":"dns verification failed"}`))
 				case "/v1/agents/heartbeat":
@@ -387,11 +451,13 @@ func TestAwNamespaceDelete(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/api/v1/namespaces" && r.Method == http.MethodGet:
+		case r.URL.Path == "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case r.URL.Path == "/api/v1/projects/p-1/namespaces" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"namespace_id": "ns-1", "full_name": "acme.com"},
 			})
-		case r.URL.Path == "/api/v1/namespaces/ns-1" && r.Method == http.MethodDelete:
+		case r.URL.Path == "/api/v1/projects/p-1/namespaces/ns-1" && r.Method == http.MethodDelete:
 			deletedID = "ns-1"
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 		case r.URL.Path == "/v1/agents/heartbeat":
@@ -434,7 +500,9 @@ func TestAwNamespaceDeleteNotFound(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/v1/agents/heartbeat":
 			w.WriteHeader(http.StatusOK)
@@ -469,7 +537,9 @@ func TestAwNamespaceDeleteRequiresForceInNonTTY(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/namespaces":
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{"project_id": "p-1"})
+		case "/api/v1/projects/p-1/namespaces":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"namespace_id": "ns-1", "full_name": "acme.com"},
 			})

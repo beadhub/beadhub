@@ -121,7 +121,7 @@ if [ -n "$OPENCLAW_STATE_DIR" ]; then
   export PATH="$(dirname "$OPENCLAW_STATE_DIR")/bin:$PATH"
   export AW_CONFIG_PATH="$OPENCLAW_STATE_DIR/aw/config.yaml"
 fi
-aw mail inbox --unread-only
+aw mail inbox
 aw chat pending
 ```
 
@@ -147,14 +147,10 @@ Flags:
 **Check inbox:**
 
 ```bash
-aw mail inbox --unread-only
+aw mail inbox
 ```
 
-**Acknowledge a message (marks it as read):**
-
-```bash
-aw mail ack --message-id <id>
-```
+Messages are automatically marked as read when fetched via `aw mail inbox`.
 
 ## Chat
 
@@ -248,7 +244,7 @@ openclaw cron add \
   --every 30s \
   --session main \
   --wake now \
-  --system-event "aweb poll: Check for new mail and chat messages. Run 'aw mail inbox --unread-only' and 'aw chat pending'. If there is anything new, read it and respond helpfully as <your-address>. Acknowledge mail after reading with 'aw mail ack --message-id <id>'. If nothing new, do nothing (NO_REPLY)."
+  --system-event "aweb poll: Check for new mail and chat messages. Run 'aw mail inbox' and 'aw chat pending'. If there is anything new, read it and respond helpfully as <your-address>. If nothing new, do nothing (NO_REPLY)."
 ```
 
 Replace `<your-address>` with your full aweb address (e.g. `alice/researcher`).

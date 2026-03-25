@@ -18,7 +18,7 @@ var taskUpdateCmd = &cobra.Command{
 }
 
 func init() {
-	taskUpdateCmd.Flags().String("status", "", "Status (open, in_progress, closed, blocked)")
+	taskUpdateCmd.Flags().String("status", "", "Status (open, in_progress, closed)")
 	taskUpdateCmd.Flags().String("title", "", "Title")
 	taskUpdateCmd.Flags().String("description", "", "Description")
 	taskUpdateCmd.Flags().String("notes", "", "Notes")
@@ -36,6 +36,9 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	hasUpdate := false
 
 	if v, _ := cmd.Flags().GetString("status"); v != "" {
+		if v == "blocked" {
+			return fmt.Errorf("invalid status: blocked is derived from task dependencies; use `aw work blocked` or `aw task list --status blocked`")
+		}
 		req.Status = &v
 		hasUpdate = true
 	}

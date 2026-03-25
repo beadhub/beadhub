@@ -23,6 +23,7 @@ type Event struct {
 	ReaderAlias        string `json:"reader_alias,omitempty"`
 	ExtendWait         bool   `json:"hang_on,omitempty"`
 	ExtendsWaitSeconds int    `json:"extends_wait_seconds,omitempty"`
+	ReplyToMessageID   string `json:"reply_to_message_id,omitempty"`
 
 	// Identity fields for message verification.
 	FromDID            string `json:"from_did,omitempty"`

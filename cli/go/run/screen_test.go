@@ -32,8 +32,8 @@ func TestStyleScreenLineCategories(t *testing.T) {
 		{line: `>_ go test ./... 2>&1`, want: "tool"},
 		{line: `  file_path="/tmp/image.png"`, want: "tool_detail"},
 		{line: `   1. PTY default-off`, want: "plain"},
-		{line: "<- dave (mail): please review this", want: "comms"},
-		{line: "-> henry (chat)", want: "comms"},
+		{line: "• from dave (mail): please review this", want: "comms"},
+		{line: "• to henry (chat)", want: "comms"},
 		{line: "  = ok", want: "result"},
 		{line: "done  2.1s", want: "done"},
 		{line: "info: session", want: "info"},
@@ -76,10 +76,10 @@ func TestStyleScreenLineColorsClosingParenOnContinuation(t *testing.T) {
 	}
 }
 
-func TestStyleScreenLineBoldsCommArrowAndAlias(t *testing.T) {
+func TestStyleScreenLineStylesCommLabel(t *testing.T) {
 	styles := newScreenStyles()
-	got := styleScreenLine(`<- dave (mail): merged to main`, styles)
-	want := styles.comms.Render(`<- dave`) + ` (mail): merged to main`
+	got := styleScreenLine(`• from dave (mail): merged to main`, styles)
+	want := styles.commsBullet.Render(`•`) + styles.comms.Render(` from dave (mail)`) + `: merged to main`
 	if got != want {
 		t.Fatalf("unexpected styled comm line %q", got)
 	}
@@ -181,12 +181,12 @@ func TestWrapScreenLineKeepsToolArgIndent(t *testing.T) {
 }
 
 func TestWrapScreenLineUsesHangingIndentForCommLines(t *testing.T) {
-	lines := wrapScreenLine(`<- dave (mail): this is a long coordination update that should wrap cleanly`, 28)
+	lines := wrapScreenLine(`• from dave (mail): this is a long coordination update that should wrap cleanly`, 28)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
 	for _, line := range lines[1:] {
-		if !strings.HasPrefix(line, "   ") {
+		if !strings.HasPrefix(line, strings.Repeat(" ", len("• from "))) {
 			t.Fatalf("expected hanging indent under alias start, got %#v", lines)
 		}
 	}
@@ -463,6 +463,77 @@ func TestScreenControllerNewlineStillSubmitsOutsidePaste(t *testing.T) {
 done:
 	if submitted != "hello" {
 		t.Fatalf("expected single-line submission, got %q", submitted)
+	}
+}
+
+func TestScreenControllerCtrlJInsertsNewlineWithoutSubmitting(t *testing.T) {
+	screen := &ScreenController{
+		promptLabel:   ">> ",
+		inputLine:     ">> ",
+		historyIndex:  -1,
+		desiredColumn: -1,
+		events:        make(chan ControlEvent, 64),
+	}
+
+	screen.handleInlineInput([]byte("hello\nworld"))
+
+	value := InputValueFromLine(screen.inputLine, screen.promptLabel)
+	if value != "hello\nworld" {
+		t.Fatalf("expected ctrl-j to insert newline, got %q", value)
+	}
+	for {
+		select {
+		case evt := <-screen.events:
+			if evt.Type == ControlPrompt {
+				t.Fatalf("expected no submission on ctrl-j, got %q", evt.Text)
+			}
+		default:
+			return
+		}
+	}
+}
+
+func TestScreenControllerShiftEnterSequenceInsertsNewlineWithoutSubmitting(t *testing.T) {
+	screen := &ScreenController{
+		promptLabel:   ">> ",
+		inputLine:     ">> ",
+		historyIndex:  -1,
+		desiredColumn: -1,
+		events:        make(chan ControlEvent, 64),
+	}
+
+	screen.handleInlineInput([]byte("hello\x1b[13;2uworld"))
+
+	value := InputValueFromLine(screen.inputLine, screen.promptLabel)
+	if value != "hello\nworld" {
+		t.Fatalf("expected shift-enter sequence to insert newline, got %q", value)
+	}
+	for {
+		select {
+		case evt := <-screen.events:
+			if evt.Type == ControlPrompt {
+				t.Fatalf("expected no submission on shift-enter, got %q", evt.Text)
+			}
+		default:
+			return
+		}
+	}
+}
+
+func TestBuildPromptLayoutPreservesExplicitNewlines(t *testing.T) {
+	layout := buildPromptLayout(">> ", "hello\nworld", len([]rune("hello\nworld")), 40)
+
+	if len(layout.lines) != 2 {
+		t.Fatalf("expected 2 prompt lines, got %#v", layout.lines)
+	}
+	if layout.lines[0] != ">> hello" {
+		t.Fatalf("unexpected first prompt line %q", layout.lines[0])
+	}
+	if layout.lines[1] != "   world" {
+		t.Fatalf("unexpected continuation prompt line %q", layout.lines[1])
+	}
+	if layout.cursorLine != 1 || layout.cursorCol != len("   world") {
+		t.Fatalf("unexpected cursor position line=%d col=%d", layout.cursorLine, layout.cursorCol)
 	}
 }
 

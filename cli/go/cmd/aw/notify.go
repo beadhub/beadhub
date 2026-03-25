@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +15,8 @@ import (
 	"github.com/awebai/aw/chat"
 	"github.com/spf13/cobra"
 )
+
+const notifyCooldown = 10 * time.Second
 
 var notifyCmd = &cobra.Command{
 	Use:   "notify",
@@ -42,10 +48,16 @@ func runNotify(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	stampPath := notifyStampPath(sel.IdentityHandle)
+	if notifyCooldownActive(stampPath, notifyCooldown) {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 	defer cancel()
 
 	result, err := chat.Pending(ctx, c.Client)
+	touchNotifyStamp(stampPath)
 	if err != nil || result == nil || len(result.Pending) == 0 {
 		return nil
 	}
@@ -56,6 +68,30 @@ func runNotify(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Print(formatHookOutput(output))
 	return nil
+}
+
+// notifyStampPath returns the cooldown stamp file path for an identity.
+func notifyStampPath(identity string) string {
+	h := sha256.Sum256([]byte(identity))
+	return filepath.Join(os.TempDir(), "aw-notify-"+hex.EncodeToString(h[:8]))
+}
+
+// notifyCooldownActive returns true if the stamp file was modified within the cooldown period.
+func notifyCooldownActive(stampPath string, cooldown time.Duration) bool {
+	info, err := os.Stat(stampPath)
+	if err != nil {
+		return false
+	}
+	return time.Since(info.ModTime()) < cooldown
+}
+
+// touchNotifyStamp creates or updates the stamp file's modification time.
+func touchNotifyStamp(stampPath string) {
+	f, err := os.Create(stampPath)
+	if err != nil {
+		return
+	}
+	f.Close()
 }
 
 func formatNotifyOutput(result *chat.PendingResult, selfAlias string) string {

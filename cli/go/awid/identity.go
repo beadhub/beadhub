@@ -53,6 +53,7 @@ type serverResolveResponse struct {
 	DID           string `json:"did"`
 	StableID      string `json:"stable_id"`
 	IdentityID    string `json:"identity_id"`
+	AgentID       string `json:"agent_id"`
 	Address       string `json:"address"`
 	HumanName     string `json:"human_name"`
 	Handle        string `json:"handle"`
@@ -71,17 +72,25 @@ type ServerResolver struct {
 
 func (r *ServerResolver) Resolve(ctx context.Context, identifier string) (*ResolvedIdentity, error) {
 	var resp serverResolveResponse
-	path := "/v1/agents/resolve/" + identifier
+	path := r.resolvePath(identifier)
 	if err := r.Client.Get(ctx, path, &resp); err != nil {
 		return nil, fmt.Errorf("ServerResolver: %w", err)
+	}
+	identityID := strings.TrimSpace(resp.IdentityID)
+	if identityID == "" {
+		identityID = strings.TrimSpace(resp.AgentID)
+	}
+	handle := strings.TrimSpace(resp.Handle)
+	if handle == "" {
+		handle = resolveHandleFromAddress(resp.Address)
 	}
 	identity := &ResolvedIdentity{
 		DID:           resp.DID,
 		StableID:      resp.StableID,
-		IdentityID:    resp.IdentityID,
+		IdentityID:    identityID,
 		Address:       resp.Address,
 		ControllerDID: resp.ControllerDID,
-		Handle:        resp.Handle,
+		Handle:        handle,
 		ServerURL:     resp.Server,
 		Custody:       resp.Custody,
 		Lifetime:      resp.Lifetime,
@@ -89,19 +98,73 @@ func (r *ServerResolver) Resolve(ctx context.Context, identifier string) (*Resol
 		ResolvedVia:   "server",
 	}
 	if strings.TrimSpace(resp.PublicKey) != "" {
-		pub, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(resp.PublicKey))
+		pub, err := decodeServerPublicKey(strings.TrimSpace(resp.PublicKey))
 		if err != nil {
-			return nil, fmt.Errorf("ServerResolver: invalid public_key: %w", err)
+			if identity.DID == "" {
+				return nil, fmt.Errorf("ServerResolver: invalid public_key: %w", err)
+			}
+			pub, err = ExtractPublicKey(identity.DID)
+			if err != nil {
+				return nil, fmt.Errorf("ServerResolver: invalid public_key: %w", err)
+			}
 		}
-		if len(pub) != ed25519.PublicKeySize {
-			return nil, fmt.Errorf("ServerResolver: invalid public_key length %d", len(pub))
-		}
-		identity.PublicKey = ed25519.PublicKey(pub)
+		identity.PublicKey = pub
 		if identity.DID != "" && ComputeDIDKey(identity.PublicKey) != identity.DID {
 			return nil, fmt.Errorf("ServerResolver: DID/public_key mismatch")
 		}
 	}
 	return identity, nil
+}
+
+func decodeServerPublicKey(raw string) (ed25519.PublicKey, error) {
+	var lastErr error
+	for _, encoding := range []*base64.Encoding{
+		base64.RawStdEncoding,
+		base64.StdEncoding,
+		base64.RawURLEncoding,
+		base64.URLEncoding,
+	} {
+		pub, err := encoding.DecodeString(raw)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(pub) != ed25519.PublicKeySize {
+			lastErr = fmt.Errorf("invalid public_key length %d", len(pub))
+			continue
+		}
+		return ed25519.PublicKey(pub), nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("unsupported public_key encoding")
+}
+
+func (r *ServerResolver) resolvePath(identifier string) string {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return "/v1/agents/resolve/"
+	}
+	addr := ParseNetworkAddress(identifier)
+	if addr.IsNetwork && strings.TrimSpace(r.Client.projectSlug) != "" && strings.EqualFold(addr.OrgSlug, r.Client.projectSlug) {
+		return "/v1/agents/resolve/" + urlPathEscape(addr.Alias)
+	}
+	return "/v1/agents/resolve/" + identifier
+}
+
+func resolveHandleFromAddress(address string) string {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ""
+	}
+	if idx := strings.LastIndexByte(address, '/'); idx >= 0 && idx+1 < len(address) {
+		return strings.TrimSpace(address[idx+1:])
+	}
+	if idx := strings.LastIndexByte(address, '~'); idx >= 0 && idx+1 < len(address) {
+		return strings.TrimSpace(address[idx+1:])
+	}
+	return address
 }
 
 // PinResolver looks up identity from the local TOFU pin store.

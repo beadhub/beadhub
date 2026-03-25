@@ -25,7 +25,7 @@ func TestEventBusRetriesEarlyEOF(t *testing.T) {
 			}
 			return
 		}
-		_, _ = w.Write([]byte("event: chat_message\ndata: {\"message_id\":\"m1\",\"from_alias\":\"mia\",\"session_id\":\"s1\"}\n\n"))
+		_, _ = w.Write([]byte("event: actionable_chat\ndata: {\"message_id\":\"m1\",\"from_alias\":\"mia\",\"session_id\":\"s1\",\"wake_mode\":\"prompt\",\"unread_count\":1,\"sender_waiting\":true}\n\n"))
 		if flusher != nil {
 			flusher.Flush()
 		}
@@ -49,7 +49,7 @@ func TestEventBusRetriesEarlyEOF(t *testing.T) {
 		if !ok {
 			t.Fatal("expected queued event")
 		}
-		if evt.Event.Type != awid.AgentEventChatMessage || evt.Event.FromAlias != "mia" {
+		if evt.Event.Type != awid.AgentEventActionableChat || evt.Event.FromAlias != "mia" {
 			t.Fatalf("unexpected event: %#v", evt.Event)
 		}
 		if requests.Load() < 2 {
@@ -73,7 +73,7 @@ func TestEventBusRetriesTransientOpenError(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("event: mail_message\ndata: {\"message_id\":\"m2\",\"from_alias\":\"alice\",\"subject\":\"test\"}\n\n"))
+		_, _ = w.Write([]byte("event: actionable_mail\ndata: {\"message_id\":\"m2\",\"from_alias\":\"alice\",\"subject\":\"test\",\"wake_mode\":\"prompt\",\"unread_count\":1}\n\n"))
 	}))
 	t.Cleanup(server.Close)
 
@@ -94,7 +94,7 @@ func TestEventBusRetriesTransientOpenError(t *testing.T) {
 		if !ok {
 			t.Fatal("expected queued event")
 		}
-		if evt.Event.Type != awid.AgentEventMailMessage || evt.Event.FromAlias != "alice" {
+		if evt.Event.Type != awid.AgentEventActionableMail || evt.Event.FromAlias != "alice" {
 			t.Fatalf("unexpected event: %#v", evt.Event)
 		}
 		if requests.Load() < 2 {

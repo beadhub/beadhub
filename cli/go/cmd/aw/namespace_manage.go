@@ -11,18 +11,24 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// resolveCloudClient creates a client for /api/v1/ cloud endpoints,
-// handling the /api prefix normalization.
+// resolveCloudClient creates an API-key client for hosted cloud endpoints.
 func resolveCloudClient() (*aweb.Client, error) {
 	_, sel, err := resolveAPIKeyOnly()
 	if err != nil {
 		return nil, err
 	}
-	rootURL, err := cloudRootBaseURL(sel.BaseURL)
+	return aweb.NewWithAPIKey(sel.BaseURL, sel.APIKey)
+}
+
+func resolveHostedProjectID(ctx context.Context, client *aweb.Client) (string, error) {
+	intro, err := client.Introspect(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return aweb.NewWithAPIKey(rootURL, sel.APIKey)
+	if strings.TrimSpace(intro.ProjectID) == "" {
+		return "", fmt.Errorf("could not determine project id from the current auth context")
+	}
+	return strings.TrimSpace(intro.ProjectID), nil
 }
 
 var projectNamespaceCmd = &cobra.Command{
@@ -48,31 +54,36 @@ var namespaceAddCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		resp, err := client.AddExternalNamespace(ctx, &awid.ExternalNamespaceRequest{
+		projectID, err := resolveHostedProjectID(ctx, client)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.AddExternalNamespace(ctx, projectID, &awid.ExternalNamespaceRequest{
 			Domain: domain,
 		})
 		if err != nil {
 			return err
 		}
 
-			printOutput(resp, func(v any) string {
-				r := v.(*awid.NamespaceSummary)
-				var b strings.Builder
-				fmt.Fprintf(&b, "Domain %s added.\n\n", r.FullName)
-				fmt.Fprintf(&b, "Add this DNS TXT record to verify ownership:\n\n")
-				fmt.Fprintf(&b, "  Name:  %s\n", r.DnsTxtName)
-				fmt.Fprintf(&b, "  Type:  TXT\n")
-				fmt.Fprintf(&b, "  Value: %s\n\n", r.DnsTxtValue)
-				fmt.Fprintf(&b, "Next:\n")
-				fmt.Fprintf(&b, "  1. Add the TXT record in your DNS provider.\n")
-				fmt.Fprintf(&b, "  2. Wait for DNS propagation.\n")
-				fmt.Fprintf(&b, "  3. Run: aw project namespace verify %s\n\n", r.FullName)
-				fmt.Fprintf(&b, "If verification does not succeed immediately, wait a few minutes and run the verify command again.\n")
-				return b.String()
-			})
-			return nil
-		},
-	}
+		printOutput(resp, func(v any) string {
+			r := v.(*awid.NamespaceSummary)
+			var b strings.Builder
+			fmt.Fprintf(&b, "Domain %s added.\n\n", r.FullName)
+			fmt.Fprintf(&b, "Add this DNS TXT record to verify ownership:\n\n")
+			fmt.Fprintf(&b, "  Name:  %s\n", r.DnsTxtName)
+			fmt.Fprintf(&b, "  Type:  TXT\n")
+			fmt.Fprintf(&b, "  Value: %s\n\n", r.DnsTxtValue)
+			fmt.Fprintf(&b, "Next:\n")
+			fmt.Fprintf(&b, "  1. Add the TXT record in your DNS provider.\n")
+			fmt.Fprintf(&b, "  2. Wait for DNS propagation.\n")
+			fmt.Fprintf(&b, "  3. Run: aw project namespace verify %s\n\n", r.FullName)
+			fmt.Fprintf(&b, "If verification does not succeed immediately, wait a few minutes and run the verify command again.\n")
+			return b.String()
+		})
+		return nil
+	},
+}
 
 var namespaceVerifyCmd = &cobra.Command{
 	Use:   "verify <domain>",
@@ -92,12 +103,17 @@ var namespaceVerifyCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		ns, err := findNamespaceByDomain(ctx, client, domain)
+		projectID, err := resolveHostedProjectID(ctx, client)
 		if err != nil {
 			return err
 		}
 
-		resp, err := client.VerifyNamespace(ctx, ns.NamespaceID)
+		ns, err := findNamespaceByDomain(ctx, client, projectID, domain)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.VerifyNamespace(ctx, projectID, ns.NamespaceID)
 		if err != nil {
 			code, _ := awid.HTTPStatusCode(err)
 			if code == 400 || code == 422 {
@@ -132,7 +148,12 @@ var namespaceListCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		list, err := client.ListManagedNamespaces(ctx)
+		projectID, err := resolveHostedProjectID(ctx, client)
+		if err != nil {
+			return err
+		}
+
+		list, err := client.ListManagedNamespaces(ctx, projectID)
 		if err != nil {
 			return err
 		}
@@ -146,7 +167,7 @@ var namespaceListCmd = &cobra.Command{
 				if ns.IsExternal {
 					nsType = "external"
 				}
-				fmt.Fprintf(&b, "%-24s %-10s %-14s %d\n", ns.FullName, nsType, ns.RegistrationStatus, ns.PublishedAgentCount)
+				fmt.Fprintf(&b, "%-24s %-10s %-14s %d\n", ns.FullName, nsType, ns.RegistrationStatus, ns.IdentityCount())
 			}
 			return b.String()
 		})
@@ -174,7 +195,12 @@ var namespaceDeleteCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		ns, err := findNamespaceByDomain(ctx, client, domain)
+		projectID, err := resolveHostedProjectID(ctx, client)
+		if err != nil {
+			return err
+		}
+
+		ns, err := findNamespaceByDomain(ctx, client, projectID, domain)
 		if err != nil {
 			return err
 		}
@@ -193,7 +219,7 @@ var namespaceDeleteCmd = &cobra.Command{
 			}
 		}
 
-		if err := client.DeleteNamespace(ctx, ns.NamespaceID); err != nil {
+		if err := client.DeleteNamespace(ctx, projectID, ns.NamespaceID); err != nil {
 			return err
 		}
 
@@ -206,8 +232,8 @@ var namespaceDeleteCmd = &cobra.Command{
 	},
 }
 
-func findNamespaceByDomain(ctx context.Context, client *aweb.Client, domain string) (*awid.NamespaceSummary, error) {
-	list, err := client.ListManagedNamespaces(ctx)
+func findNamespaceByDomain(ctx context.Context, client *aweb.Client, projectID, domain string) (*awid.NamespaceSummary, error) {
+	list, err := client.ListManagedNamespaces(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}

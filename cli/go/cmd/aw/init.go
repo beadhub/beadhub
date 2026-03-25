@@ -211,7 +211,7 @@ func collectInitOptionsForFlow(flow initFlow) (initOptions, error) {
 		projectSlug = strings.TrimSpace(suggestion.ProjectSlug)
 	}
 	if projectSlug == "" && flow != flowProjectKey {
-		if isTTY() {
+		if isTTY() && !jsonFlag {
 			suggested := sanitizeSlug(filepath.Base(workingDir))
 			v, err := promptString("Project", suggested)
 			if err != nil {
@@ -274,7 +274,7 @@ func collectInitOptionsForFlow(flow initFlow) (initOptions, error) {
 	// --- TTY prompts for alias (after role, so prompts are in logical order) ---
 
 	if !initPermanent {
-		if isTTY() && !aliasExplicit {
+		if isTTY() && !jsonFlag && !aliasExplicit {
 			v, err := promptRequiredString("Alias", alias)
 			if err != nil {
 				return initOptions{}, err

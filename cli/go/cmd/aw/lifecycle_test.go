@@ -29,7 +29,7 @@ func TestAwIdentityDeleteEphemeral(t *testing.T) {
 				"namespace_slug": "myco",
 				"address":        "myco/alice",
 			})
-		case r.URL.Path == "/v1/agents/resolve/myco/alice" && r.Method == http.MethodGet:
+		case r.URL.Path == "/v1/agents/resolve/alice" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"agent_id":   "agent-1",
 				"did":        "did:key:z6MkEphemeral",
@@ -154,7 +154,7 @@ func TestAwIdentityDeleteRejectsPermanent(t *testing.T) {
 				"namespace_slug": "myco",
 				"address":        "myco/alice",
 			})
-		case r.URL.Path == "/v1/agents/resolve/myco/alice" && r.Method == http.MethodGet:
+		case r.URL.Path == "/v1/agents/resolve/alice" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"agent_id": "agent-1",
 				"did":      "did:key:z6MkPermanent",

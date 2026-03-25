@@ -411,6 +411,11 @@ func (t *baseURLFallbackTransport) requestForBase(req *http.Request, baseURL str
 	return clone, nil
 }
 
+// shouldRetryBaseURLRequest decides whether the base-URL fallback transport
+// should retry against the alternative URL. The 404 check handles misconfigured
+// base URLs (e.g. user stored /api in the URL and the path doubled). This does
+// mean legitimate API 404s (agent not found, task not found) also trigger a
+// retry, adding one extra round-trip before the real 404 propagates.
 func shouldRetryBaseURLRequest(resp *http.Response, err error) bool {
 	if err != nil {
 		return true
