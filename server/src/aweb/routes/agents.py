@@ -171,6 +171,7 @@ class RegisterAgentResponse(BaseModel):
 class AgentView(BaseModel):
     agent_id: str
     alias: str
+    owner_type: Optional[str] = None
     human_name: Optional[str] = None
     agent_type: Optional[str] = None
     workspace_type: Optional[str] = None
@@ -1522,6 +1523,16 @@ async def list_agents(
 
     aweb_db = db_infra.get_manager("aweb")
     server_db = db_infra.get_manager("server")
+    owner_row = await aweb_db.fetch_one(
+        """
+        SELECT owner_type
+        FROM {{tables.projects}}
+        WHERE project_id = $1
+          AND deleted_at IS NULL
+        """,
+        UUID(project_id),
+    )
+    project_owner_type = (str(owner_row.get("owner_type") or "") or None) if owner_row else None
     databases = getattr(request.app.state, "databases", None) or {}
     api_db = getattr(request.app.state, "api_db", None) or databases.get("api")
     project_row = await server_db.fetch_one(
@@ -1607,6 +1618,7 @@ async def list_agents(
             AgentView(
                 agent_id=agent_id,
                 alias=r["alias"],
+                owner_type=project_owner_type,
                 human_name=(r.get("human_name") or None),
                 agent_type=(r.get("agent_type") or None),
                 workspace_type=(context_row.get("workspace_type") if context_row else None),
