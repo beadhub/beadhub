@@ -72,7 +72,16 @@ CREATE TABLE IF NOT EXISTS {{tables.workspaces}} (
         deleted_at IS NOT NULL OR
         (
             (workspace_type = 'agent' AND repo_id IS NOT NULL) OR
-            (workspace_type IN ('dashboard', 'local_dir', 'service_process', 'manual') AND repo_id IS NULL)
+            (
+                workspace_type IN (
+                    'dashboard_browser',
+                    'hosted_mcp',
+                    'local_dir',
+                    'service_process',
+                    'manual'
+                )
+                AND repo_id IS NULL
+            )
         )
     ),
     CONSTRAINT chk_workspace_role_length CHECK (role IS NULL OR length(role) <= 50)
@@ -90,10 +99,6 @@ CREATE INDEX IF NOT EXISTS idx_workspaces_active ON {{tables.workspaces}}(projec
     WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_workspaces_hostname ON {{tables.workspaces}}(hostname)
     WHERE hostname IS NOT NULL AND deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_workspaces_dashboard
-    ON {{tables.workspaces}}(project_id, human_name)
-    WHERE workspace_type = 'dashboard';
-
 -- Trigger to update updated_at and enforce immutability
 CREATE OR REPLACE FUNCTION {{schema}}.update_workspace_timestamp()
 RETURNS TRIGGER AS $$

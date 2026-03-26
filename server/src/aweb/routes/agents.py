@@ -1599,7 +1599,8 @@ async def list_agents(
         if str(r.get("agent_type") or "") == "human":
             continue
         context_row = context_by_id.get(agent_id)
-        if context_row is not None and str(context_row.get("workspace_type") or "") == "dashboard":
+        workspace_type = str(context_row.get("workspace_type") or "") if context_row else ""
+        if workspace_type == "dashboard_browser":
             continue
         presence = presence_by_id.get(agent_id)
         status = "offline"
