@@ -86,6 +86,7 @@ func TestAwInitInviteAcceptWritesConfigAndUsesServerAliasFlag(t *testing.T) {
 		"AWEB_API_KEY=",
 	)
 	run.Dir = tmp
+	run.Stdin = strings.NewReader("developer\n")
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, string(out))
@@ -205,6 +206,7 @@ func TestAwInitInviteAcceptUsesServerProvidedAliasHint(t *testing.T) {
 		"AWEB_API_KEY=",
 	)
 	run.Dir = tmp
+	run.Stdin = strings.NewReader("\ndeveloper\n")
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, string(out))
@@ -283,6 +285,7 @@ func TestAwInitInviteAcceptPermanentUsesExplicitName(t *testing.T) {
 		"AWEB_API_KEY=",
 	)
 	run.Dir = tmp
+	run.Stdin = strings.NewReader("\ndeveloper\n\n")
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, string(out))
@@ -349,6 +352,7 @@ func TestAwInitInviteAcceptRequiresAPIKeyInResponse(t *testing.T) {
 		"AWEB_API_KEY=",
 	)
 	run.Dir = tmp
+	run.Stdin = strings.NewReader("\ndeveloper\n")
 	out, err := run.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected failure, got success:\n%s", string(out))
@@ -399,6 +403,7 @@ func TestAwInitInviteAliasErrorOnlyMapsAliasValidation(t *testing.T) {
 		"AWEB_API_KEY=",
 	)
 	run.Dir = tmp
+	run.Stdin = strings.NewReader("\ndeveloper\n\n")
 	out, err := run.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected failure, got success:\n%s", string(out))
@@ -472,6 +477,7 @@ func TestAwInitInviteTextOutputSaysJoined(t *testing.T) {
 		"AWEB_API_KEY=",
 	)
 	run.Dir = tmp
+	run.Stdin = strings.NewReader("\ndeveloper\n")
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, string(out))
