@@ -52,6 +52,8 @@ var (
 	runNewScreenController  = awrun.NewScreenController
 	runResolveClientForDir  = resolveClientSelectionForDir
 	runExecuteInitFlow      = executeInit
+	runExecuteConnectFlow   = executeConnect
+	runInspectCredential    = inspectRunCredentialKind
 	runWorkspaceStateForDir = resolveRunWorkspaceStateForDir
 	runPrintInitSummary     = printInitSummary
 	runPrintPostInitActions = printPostInitActions
@@ -319,6 +321,14 @@ const (
 	runWorkspaceStateMissing
 )
 
+type runCredentialKind int
+
+const (
+	runCredentialKindProject runCredentialKind = iota
+	runCredentialKindIdentity
+	runCredentialKindUser
+)
+
 func resolveRunClientForDir(cmd *cobra.Command, workingDir string, interactive bool, promptInput io.Reader) (*aweb.Client, *awconfig.Selection, error) {
 	state, err := runWorkspaceStateForDir(workingDir)
 	if err != nil {
@@ -385,8 +395,7 @@ func promptRunYesNo(label string, defaultYes bool, in io.Reader, out io.Writer) 
 
 func runOnboardingWizard(cmd *cobra.Command, workingDir string, promptInput io.Reader) error {
 	if strings.TrimSpace(os.Getenv("AWEB_API_KEY")) != "" {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Using AWEB_API_KEY to initialize this directory in an existing project.")
-		return runWizardInitExistingProject(cmd, workingDir, promptInput)
+		return runWizardUseProvidedKey(cmd, workingDir, promptInput, strings.TrimSpace(os.Getenv("AWEB_API_KEY")))
 	}
 
 	hasProject, err := promptRunYesNo("Do you already have an aweb project?", true, promptInput, cmd.ErrOrStderr())
@@ -399,11 +408,32 @@ func runOnboardingWizard(cmd *cobra.Command, workingDir string, promptInput io.R
 	return runWizardCreateProject(cmd, workingDir, promptInput)
 }
 
-func runWizardInitExistingProject(cmd *cobra.Command, workingDir string, promptInput io.Reader) error {
+func runWizardUseProvidedKey(cmd *cobra.Command, workingDir string, promptInput io.Reader, apiKey string) error {
 	serverURL, err := promptRequiredStringWithIO("Server URL", defaultWizardServerURL(), promptInput, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
+	baseURL, _, _, err := initResolveBaseURLForCollection(serverURL, serverFlag)
+	if err != nil {
+		return err
+	}
+	kind, err := runInspectCredential(baseURL, apiKey)
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case runCredentialKindIdentity:
+		fmt.Fprintln(cmd.ErrOrStderr(), "Using an identity-bound API key to connect this directory.")
+		return runWizardConnectExistingIdentity(cmd, workingDir, baseURL, apiKey)
+	case runCredentialKindProject:
+		fmt.Fprintln(cmd.ErrOrStderr(), "Using a project-scoped API key to initialize this directory in an existing project.")
+		return runWizardInitExistingProject(cmd, workingDir, promptInput, serverURL, apiKey)
+	default:
+		return usageError("this API key is not usable for agent onboarding; use a project-scoped key, an identity-bound key, or a spawn invite")
+	}
+}
+
+func runWizardInitExistingProject(cmd *cobra.Command, workingDir string, promptInput io.Reader, serverURL, apiKey string) error {
 	opts, err := collectInitOptionsWithInput(flowProjectKey, initCollectionInput{
 		WorkingDir:   workingDir,
 		Interactive:  true,
@@ -416,7 +446,7 @@ func runWizardInitExistingProject(cmd *cobra.Command, workingDir string, promptI
 		AgentType:    resolveAgentType(),
 		SaveConfig:   true,
 		WriteContext: true,
-		AuthToken:    strings.TrimSpace(os.Getenv("AWEB_API_KEY")),
+		AuthToken:    strings.TrimSpace(apiKey),
 	})
 	if err != nil {
 		return err
@@ -428,6 +458,20 @@ func runWizardInitExistingProject(cmd *cobra.Command, workingDir string, promptI
 	}
 	runPrintInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, workingDir, "Initialized workspace")
 	runPrintPostInitActions(result, workingDir)
+	return nil
+}
+
+func runWizardConnectExistingIdentity(cmd *cobra.Command, workingDir, baseURL, apiKey string) error {
+	result, err := runExecuteConnectFlow(connectOptions{
+		WorkingDir: workingDir,
+		BaseURL:    baseURL,
+		APIKey:     apiKey,
+		SetDefault: false,
+	})
+	if err != nil {
+		return err
+	}
+	printConnectSummary(cmd.ErrOrStderr(), result)
 	return nil
 }
 
@@ -476,7 +520,8 @@ func runWizardJoinExistingProject(cmd *cobra.Command, workingDir string, promptI
 		"Join path",
 		[]string{
 			"Use a spawn invite token",
-			"Stop and get an invite or project key first",
+			"Use a key from the dashboard",
+			"Stop and get credentials first",
 		},
 		0,
 		promptInput,
@@ -484,6 +529,13 @@ func runWizardJoinExistingProject(cmd *cobra.Command, workingDir string, promptI
 	)
 	if err != nil {
 		return err
+	}
+	if choice == "Use a key from the dashboard" {
+		apiKey, err := promptRequiredStringWithIO("API key", strings.TrimSpace(os.Getenv("AWEB_API_KEY")), promptInput, cmd.ErrOrStderr())
+		if err != nil {
+			return err
+		}
+		return runWizardUseProvidedKey(cmd, workingDir, promptInput, apiKey)
 	}
 	if choice != "Use a spawn invite token" {
 		return usageError("get a spawn invite from another agent with `aw spawn create-invite`, or get AWEB_URL/AWEB_API_KEY from the dashboard and use `aw init` or `aw connect`")
@@ -529,4 +581,25 @@ func runWizardJoinExistingProject(cmd *cobra.Command, workingDir string, promptI
 	runPrintInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, workingDir, "Accepted spawn invite")
 	runPrintPostInitActions(result, workingDir)
 	return nil
+}
+
+func inspectRunCredentialKind(baseURL, apiKey string) (runCredentialKind, error) {
+	client, err := aweb.NewWithAPIKey(baseURL, strings.TrimSpace(apiKey))
+	if err != nil {
+		return runCredentialKindUser, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	resp, err := client.Introspect(ctx)
+	if err != nil {
+		return runCredentialKindUser, err
+	}
+	if strings.TrimSpace(resp.CurrentIdentityID()) != "" {
+		return runCredentialKindIdentity, nil
+	}
+	if strings.TrimSpace(resp.ProjectID) != "" {
+		return runCredentialKindProject, nil
+	}
+	return runCredentialKindUser, nil
 }

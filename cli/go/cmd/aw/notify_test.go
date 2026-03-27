@@ -164,7 +164,7 @@ accounts:
   acct:
     server: local
     api_key: aw_sk_test
-    identity_handle: wendy
+    identity_handle: notify-api-error
 default_account: acct
 `)+"\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -226,7 +226,7 @@ accounts:
   acct:
     server: local
     api_key: aw_sk_test
-    identity_handle: wendy
+    identity_handle: notify-pending
 default_account: acct
 `)+"\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)

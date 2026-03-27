@@ -518,6 +518,8 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 	oldWorkspaceState := runWorkspaceStateForDir
 	oldResolveBaseURLForCollection := initResolveBaseURLForCollection
 	oldExecuteInitFlow := runExecuteInitFlow
+	oldExecuteConnectFlow := runExecuteConnectFlow
+	oldInspectCredential := runInspectCredential
 	oldFetchSuggestionForCollection := initFetchSuggestionForCollection
 	oldPrintInitSummary := runPrintInitSummary
 	oldPrintPostInitActions := runPrintPostInitActions
@@ -533,6 +535,8 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 		runWorkspaceStateForDir = oldWorkspaceState
 		initResolveBaseURLForCollection = oldResolveBaseURLForCollection
 		runExecuteInitFlow = oldExecuteInitFlow
+		runExecuteConnectFlow = oldExecuteConnectFlow
+		runInspectCredential = oldInspectCredential
 		initFetchSuggestionForCollection = oldFetchSuggestionForCollection
 		runPrintInitSummary = oldPrintInitSummary
 		runPrintPostInitActions = oldPrintPostInitActions
@@ -570,6 +574,9 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 	initResolveBaseURLForCollection = func(baseURL, serverName string) (string, string, *awconfig.GlobalConfig, error) {
 		return "https://app.aweb.ai/api", "app.aweb.ai", nil, nil
 	}
+	runInspectCredential = func(baseURL, apiKey string) (runCredentialKind, error) {
+		return runCredentialKindProject, nil
+	}
 	initFetchSuggestionForCollection = func(baseURL, nsSlug, authToken string) *awid.SuggestAliasPrefixResponse {
 		return &awid.SuggestAliasPrefixResponse{NamePrefix: "alice"}
 	}
@@ -604,6 +611,168 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("expected client resolution after onboarding, got %d calls", resolveCalls)
+	}
+}
+
+func TestRunInteractiveOnboardsWithIdentityKeyViaDashboardPathBeforeRunning(t *testing.T) {
+	initRunCommandVars()
+
+	oldLoad := runLoadUserConfig
+	oldResolveSettings := runResolveSettings
+	oldResolveClient := runResolveClientForDir
+	oldNewScreen := runNewScreenController
+	oldNewProvider := runNewProvider
+	oldNewLoop := runNewLoop
+	oldExecuteLoop := runExecuteLoop
+	oldNewEventBus := runNewEventBus
+	oldWorkspaceState := runWorkspaceStateForDir
+	oldResolveBaseURLForCollection := initResolveBaseURLForCollection
+	oldExecuteConnectFlow := runExecuteConnectFlow
+	oldInspectCredential := runInspectCredential
+	t.Cleanup(func() {
+		runLoadUserConfig = oldLoad
+		runResolveSettings = oldResolveSettings
+		runResolveClientForDir = oldResolveClient
+		runNewScreenController = oldNewScreen
+		runNewProvider = oldNewProvider
+		runNewLoop = oldNewLoop
+		runExecuteLoop = oldExecuteLoop
+		runNewEventBus = oldNewEventBus
+		runWorkspaceStateForDir = oldWorkspaceState
+		initResolveBaseURLForCollection = oldResolveBaseURLForCollection
+		runExecuteConnectFlow = oldExecuteConnectFlow
+		runInspectCredential = oldInspectCredential
+		initRunCommandVars()
+	})
+
+	t.Setenv("AWEB_API_KEY", "")
+	t.Setenv("AWEB_URL", "https://app.aweb.ai")
+
+	runLoadUserConfig = func(dir string) (awrun.UserConfig, error) { return awrun.UserConfig{}, nil }
+	runResolveSettings = func(cfg awrun.UserConfig, overrides awrun.SettingOverrides) (awrun.Settings, error) {
+		return awrun.Settings{BasePrompt: "mission"}, nil
+	}
+	runWorkspaceStateForDir = func(dir string) (runWorkspaceState, error) { return runWorkspaceStateMissing, nil }
+
+	var resolveCalls int
+	runResolveClientForDir = func(dir string) (*aweb.Client, *awconfig.Selection, error) {
+		resolveCalls++
+		return &aweb.Client{}, &awconfig.Selection{NamespaceSlug: "team", IdentityHandle: "rose"}, nil
+	}
+	runNewScreenController = func(in io.Reader, out io.Writer) *awrun.ScreenController {
+		return &awrun.ScreenController{}
+	}
+	runNewProvider = func(name string) (awrun.Provider, error) {
+		return awrun.ClaudeProvider{}, nil
+	}
+	runNewLoop = func(provider awrun.Provider, out io.Writer) *awrun.Loop {
+		return awrun.NewLoop(provider, out)
+	}
+	runExecuteLoop = func(loop *awrun.Loop, ctx context.Context, opts awrun.LoopOptions) error {
+		return nil
+	}
+	runNewEventBus = func(client *aweb.Client) *awrun.EventBus { return nil }
+	initResolveBaseURLForCollection = func(baseURL, serverName string) (string, string, *awconfig.GlobalConfig, error) {
+		return "https://app.aweb.ai/api", "app.aweb.ai", nil, nil
+	}
+	runInspectCredential = func(baseURL, apiKey string) (runCredentialKind, error) {
+		if apiKey != "aw_sk_identity" {
+			t.Fatalf("apiKey=%q", apiKey)
+		}
+		return runCredentialKindIdentity, nil
+	}
+
+	var capturedConnect connectOptions
+	runExecuteConnectFlow = func(opts connectOptions) (*connectResult, error) {
+		capturedConnect = opts
+		return &connectResult{
+			Response:      &awid.IntrospectResponse{ProjectID: "proj-1", IdentityID: "agent-1", NamespaceSlug: "team", Address: "team/alice"},
+			IdentityLabel: "team/alice",
+			ConfigPath:    "/tmp/config.yaml",
+		}, nil
+	}
+
+	cmd := &cobraCommandClone{Command: *runCmd}
+	cmd.ResetFlagsForTest()
+	cmd.Command.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	setRunCommandIO(&cmd.Command, strings.NewReader("\n\n2\naw_sk_identity\n\n"), &stdout, &stderr)
+
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
+		t.Fatalf("runRun returned error: %v", err)
+	}
+	if strings.TrimSpace(capturedConnect.APIKey) != "aw_sk_identity" {
+		t.Fatalf("expected identity key connect flow, got %+v", capturedConnect)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("expected client resolution after onboarding, got %d calls", resolveCalls)
+	}
+}
+
+func TestRunInteractiveRejectsUserScopedDashboardKey(t *testing.T) {
+	initRunCommandVars()
+
+	oldLoad := runLoadUserConfig
+	oldResolveSettings := runResolveSettings
+	oldNewScreen := runNewScreenController
+	oldWorkspaceState := runWorkspaceStateForDir
+	oldResolveBaseURLForCollection := initResolveBaseURLForCollection
+	oldInspectCredential := runInspectCredential
+	oldExecuteInitFlow := runExecuteInitFlow
+	oldExecuteConnectFlow := runExecuteConnectFlow
+	t.Cleanup(func() {
+		runLoadUserConfig = oldLoad
+		runResolveSettings = oldResolveSettings
+		runNewScreenController = oldNewScreen
+		runWorkspaceStateForDir = oldWorkspaceState
+		initResolveBaseURLForCollection = oldResolveBaseURLForCollection
+		runInspectCredential = oldInspectCredential
+		runExecuteInitFlow = oldExecuteInitFlow
+		runExecuteConnectFlow = oldExecuteConnectFlow
+		initRunCommandVars()
+	})
+
+	t.Setenv("AWEB_API_KEY", "")
+	t.Setenv("AWEB_URL", "https://app.aweb.ai")
+
+	runLoadUserConfig = func(dir string) (awrun.UserConfig, error) { return awrun.UserConfig{}, nil }
+	runResolveSettings = func(cfg awrun.UserConfig, overrides awrun.SettingOverrides) (awrun.Settings, error) {
+		return awrun.Settings{BasePrompt: "mission"}, nil
+	}
+	runWorkspaceStateForDir = func(dir string) (runWorkspaceState, error) { return runWorkspaceStateMissing, nil }
+	runNewScreenController = func(in io.Reader, out io.Writer) *awrun.ScreenController {
+		return &awrun.ScreenController{}
+	}
+	initResolveBaseURLForCollection = func(baseURL, serverName string) (string, string, *awconfig.GlobalConfig, error) {
+		return "https://app.aweb.ai/api", "app.aweb.ai", nil, nil
+	}
+	runInspectCredential = func(baseURL, apiKey string) (runCredentialKind, error) {
+		if apiKey != "aw_sk_user" {
+			t.Fatalf("apiKey=%q", apiKey)
+		}
+		return runCredentialKindUser, nil
+	}
+	runExecuteInitFlow = func(opts initOptions) (*initResult, error) {
+		t.Fatal("project init flow should not run for user-scoped keys")
+		return nil, nil
+	}
+	runExecuteConnectFlow = func(opts connectOptions) (*connectResult, error) {
+		t.Fatal("connect flow should not run for user-scoped keys")
+		return nil, nil
+	}
+
+	cmd := &cobraCommandClone{Command: *runCmd}
+	cmd.ResetFlagsForTest()
+	cmd.Command.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	setRunCommandIO(&cmd.Command, strings.NewReader("\n\n2\naw_sk_user\n\n"), &stdout, &stderr)
+
+	err := runRun(&cmd.Command, []string{"claude"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not usable for agent onboarding") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -14,6 +15,24 @@ import (
 )
 
 var connectSetDefault bool
+
+type connectOptions struct {
+	WorkingDir string
+	BaseURL    string
+	APIKey     string
+	SetDefault bool
+}
+
+type connectResult struct {
+	Response       *awid.IntrospectResponse
+	IdentityLabel  string
+	IdentityDID    string
+	Lifetime       string
+	Custody        string
+	StableID       string
+	SigningKeyPath string
+	ConfigPath     string
+}
 
 var connectCmd = &cobra.Command{
 	Use:   "connect",
@@ -46,11 +65,47 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	result, err := executeConnect(connectOptions{
+		WorkingDir: workingDir,
+		BaseURL:    baseURL,
+		APIKey:     apiKey,
+		SetDefault: connectSetDefault,
+	})
+	if err != nil {
+		return err
+	}
+
+	printConnectSummary(cmd.ErrOrStderr(), result)
+
+	if jsonFlag {
+		printJSON(result.Response)
+	}
+
+	return nil
+}
+
+func executeConnect(opts connectOptions) (*connectResult, error) {
+	baseURL := strings.TrimSpace(opts.BaseURL)
+	apiKey := strings.TrimSpace(opts.APIKey)
+	workingDir := strings.TrimSpace(opts.WorkingDir)
+	if workingDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		workingDir = wd
+	}
+
 	serverName, _ := awconfig.DeriveServerNameFromURL(baseURL)
 
 	client, err := aweb.NewWithAPIKey(baseURL, apiKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -58,12 +113,12 @@ func runConnect(cmd *cobra.Command, args []string) error {
 
 	resp, err := client.Introspect(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	identityID := strings.TrimSpace(resp.CurrentIdentityID())
 	if identityID == "" {
-		return usageError("This API key is not bound to an identity. Use an identity-bound key from the dashboard.")
+		return nil, usageError("This API key is not bound to an identity. Use an identity-bound key from the dashboard.")
 	}
 
 	projectSlug := ""
@@ -74,17 +129,17 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		handle = strings.TrimSpace(resp.IdentityHandle())
 	}
 	if handle == "" {
-		return usageError("server did not return an addressable identity handle; cannot import identity state safely")
+		return nil, usageError("server did not return an addressable identity handle; cannot import identity state safely")
 	}
 
 	if namespaceSlug == "" || address == "" {
 		project, err := client.GetCurrentProject(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		projectSlug = strings.TrimSpace(project.Slug)
 		if projectSlug == "" {
-			return usageError("server did not return a project slug for the current auth context; cannot import identity state safely")
+			return nil, usageError("server did not return a project slug for the current auth context; cannot import identity state safely")
 		}
 	}
 	if projectSlug == "" {
@@ -99,7 +154,7 @@ func runConnect(cmd *cobra.Command, args []string) error {
 
 	cfgPath, err := defaultGlobalPath()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Check existing config for identity fields before provisioning.
@@ -153,7 +208,7 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		namespaceSlug = projectSlug
 	}
 	if namespaceSlug == "" {
-		return usageError("server did not return enough identity routing data; cannot import addressable identity state safely")
+		return nil, usageError("server did not return enough identity routing data; cannot import addressable identity state safely")
 	}
 	if address == "" {
 		address = deriveIdentityAddress(namespaceSlug, projectSlug, handle)
@@ -196,7 +251,7 @@ func runConnect(cmd *cobra.Command, args []string) error {
 			Lifetime:       lifetime,
 		}}
 
-		if strings.TrimSpace(cfg.DefaultAccount) == "" || connectSetDefault {
+		if strings.TrimSpace(cfg.DefaultAccount) == "" || opts.SetDefault {
 			cfg.DefaultAccount = accountName
 		}
 		// Per-client default: let `aw` pick this account by default without
@@ -205,11 +260,11 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		return nil
 	})
 	if updateErr != nil {
-		return updateErr
+		return nil, updateErr
 	}
 
-	if err := writeOrUpdateContextWithOptions(serverName, accountName, connectSetDefault); err != nil {
-		return err
+	if err := writeOrUpdateContextAt(workingDir, serverName, accountName, opts.SetDefault); err != nil {
+		return nil, err
 	}
 
 	identityLabel := handle
@@ -219,29 +274,39 @@ func runConnect(cmd *cobra.Command, args []string) error {
 	if identityLabel == "" {
 		identityLabel = "current identity"
 	}
-	fmt.Fprintf(os.Stderr, "Imported identity context for %s\n", identityLabel)
-	if identityDID != "" {
-		fmt.Fprintf(os.Stderr, "Identity DID: %s\n", identityDID)
-	}
-	if lifetime != "" {
-		fmt.Fprintf(os.Stderr, "Identity: %s\n", awid.DescribeIdentityClass(lifetime))
-	}
-	if custody != "" {
-		fmt.Fprintf(os.Stderr, "Custody: %s\n", custody)
-	}
-	if stableID != "" {
-		fmt.Fprintf(os.Stderr, "Permanent ID: %s\n", stableID)
-	}
-	if awid.IsSelfCustodial(custody) && awid.IdentityClassFromLifetime(lifetime) == awid.IdentityClassPermanent && signingKeyPath == "" {
-		fmt.Fprintln(os.Stderr, "Warning: this self-custodial permanent identity has no local signing key configured.")
-	}
-	fmt.Fprintf(os.Stderr, "Config written to %s\n", cfgPath)
+	return &connectResult{
+		Response:       resp,
+		IdentityLabel:  identityLabel,
+		IdentityDID:    identityDID,
+		Lifetime:       lifetime,
+		Custody:        custody,
+		StableID:       stableID,
+		SigningKeyPath: signingKeyPath,
+		ConfigPath:     cfgPath,
+	}, nil
+}
 
-	if jsonFlag {
-		printJSON(resp)
+func printConnectSummary(out io.Writer, result *connectResult) {
+	if result == nil {
+		return
 	}
-
-	return nil
+	fmt.Fprintf(out, "Imported identity context for %s\n", result.IdentityLabel)
+	if result.IdentityDID != "" {
+		fmt.Fprintf(out, "Identity DID: %s\n", result.IdentityDID)
+	}
+	if result.Lifetime != "" {
+		fmt.Fprintf(out, "Identity: %s\n", awid.DescribeIdentityClass(result.Lifetime))
+	}
+	if result.Custody != "" {
+		fmt.Fprintf(out, "Custody: %s\n", result.Custody)
+	}
+	if result.StableID != "" {
+		fmt.Fprintf(out, "Permanent ID: %s\n", result.StableID)
+	}
+	if awid.IsSelfCustodial(result.Custody) && awid.IdentityClassFromLifetime(result.Lifetime) == awid.IdentityClassPermanent && result.SigningKeyPath == "" {
+		fmt.Fprintln(out, "Warning: this self-custodial permanent identity has no local signing key configured.")
+	}
+	fmt.Fprintf(out, "Config written to %s\n", result.ConfigPath)
 }
 
 func resolveServerIdentityState(
