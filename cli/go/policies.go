@@ -25,16 +25,16 @@ type SelectedRoleInfo struct {
 }
 
 type ActiveProjectRolesResponse struct {
-	ProjectRolesID      string                    `json:"project_roles_id"`
-	PolicyID            string                    `json:"policy_id"`
-	ActiveProjectRolesID string                   `json:"active_project_roles_id,omitempty"`
-	ActivePolicyID      string                    `json:"active_policy_id,omitempty"`
-	ProjectID           string                    `json:"project_id"`
-	Version             int                       `json:"version"`
-	UpdatedAt           string                    `json:"updated_at"`
-	Invariants          []ProjectRolesInvariant   `json:"invariants"`
-	Roles               map[string]RoleDefinition `json:"roles"`
-	SelectedRole        *SelectedRoleInfo         `json:"selected_role,omitempty"`
+	ProjectRolesID       string                    `json:"project_roles_id"`
+	PolicyID             string                    `json:"policy_id"`
+	ActiveProjectRolesID string                    `json:"active_project_roles_id,omitempty"`
+	ActivePolicyID       string                    `json:"active_policy_id,omitempty"`
+	ProjectID            string                    `json:"project_id"`
+	Version              int                       `json:"version"`
+	UpdatedAt            string                    `json:"updated_at"`
+	Invariants           []ProjectRolesInvariant   `json:"invariants"`
+	Roles                map[string]RoleDefinition `json:"roles"`
+	SelectedRole         *SelectedRoleInfo         `json:"selected_role,omitempty"`
 }
 
 type ActiveProjectRolesParams struct {
