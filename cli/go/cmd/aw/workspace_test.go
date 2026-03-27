@@ -1275,11 +1275,17 @@ default_account: acct-source
 		t.Fatalf("run failed: %v\n%s", err, string(out))
 	}
 	text := string(out)
-	if !strings.Contains(text, "Worktree created at") {
+	if !strings.Contains(text, "New agent worktree created at") {
 		t.Fatalf("unexpected output:\n%s", text)
 	}
-	if !strings.Contains(text, "Alias:    bob") {
+	if !strings.Contains(text, "Alias:      bob") {
 		t.Fatalf("missing alias in output:\n%s", text)
+	}
+	if !strings.Contains(text, "this worktree is now agent bob") {
+		t.Fatalf("missing agent identity guidance in output:\n%s", text)
+	}
+	if !strings.Contains(text, "aw run codex") {
+		t.Fatalf("missing run-first guidance in output:\n%s", text)
 	}
 
 	worktreePath := filepath.Join(tmp, "repo-bob")
@@ -1598,7 +1604,7 @@ default_account: acct-source
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, string(out))
 	}
-	if !strings.Contains(string(out), "Alias:    carol") {
+	if !strings.Contains(string(out), "Alias:      carol") {
 		t.Fatalf("unexpected output:\n%s", string(out))
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "repo-carol")); err != nil {
@@ -1873,7 +1879,7 @@ default_account: acct-source
 	if initCalls != 2 {
 		t.Fatalf("initCalls=%d", initCalls)
 	}
-	if !strings.Contains(string(out), "Alias:    bob-3") {
+	if !strings.Contains(string(out), "Alias:      bob-3") {
 		t.Fatalf("unexpected output:\n%s", string(out))
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "repo-bob-3")); err != nil {

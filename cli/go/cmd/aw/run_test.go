@@ -153,17 +153,18 @@ func TestRunBuildsLoopOptionsFromConfigAndFlags(t *testing.T) {
 	runMaxRuns = 3
 	runAllowedTools = "Read,Write"
 	runModel = "sonnet"
-	runProviderName = "claude"
 	runProviderPTY = true
 	runAutofeedWork = true
 	runBasePrompt = "flag base"
+	runInitialPrompt = "finish the migration"
 	runWaitSeconds = 7
 	cmd.Command.Flags().Set("base-prompt", "flag base")
+	cmd.Command.Flags().Set("prompt", "finish the migration")
 	cmd.Command.Flags().Set("wait", "7")
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, []string{"finish", "the", "migration"}); err != nil {
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
 		t.Fatalf("runRun returned error: %v", err)
 	}
 	if capturedLoop == nil {
@@ -223,7 +224,7 @@ func TestRunRequiresPromptWithoutConfiguredBasePrompt(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	err := runRun(&cmd.Command, nil)
+	err := runRun(&cmd.Command, []string{"claude"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -232,6 +233,28 @@ func TestRunRequiresPromptWithoutConfiguredBasePrompt(t *testing.T) {
 		t.Fatalf("expected cliError, got %T", err)
 	}
 	if !strings.Contains(err.Error(), "missing prompt") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunRequiresProviderWhenNonInteractive(t *testing.T) {
+	initRunCommandVars()
+
+	cmd := &cobraCommandClone{Command: *runCmd}
+	cmd.ResetFlagsForTest()
+	cmd.Command.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
+
+	err := runRun(&cmd.Command, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var cliErr *cliError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected cliError, got %T", err)
+	}
+	if !strings.Contains(err.Error(), "missing provider") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -289,7 +312,7 @@ func TestRunAllowsEmptyPromptWhenInteractiveScreenIsAvailable(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, nil); err != nil {
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
 		t.Fatalf("runRun returned error: %v", err)
 	}
 	if capturedOpts.InitialPrompt != "" || capturedOpts.BasePrompt != "" {
@@ -350,11 +373,10 @@ func TestRunDefaultsCodexToNonPTYWhenInteractive(t *testing.T) {
 	cmd := &cobraCommandClone{Command: *runCmd}
 	cmd.ResetFlagsForTest()
 	cmd.Command.SetContext(context.Background())
-	runProviderName = "codex"
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, nil); err != nil {
+	if err := runRun(&cmd.Command, []string{"codex"}); err != nil {
 		t.Fatalf("runRun returned error: %v", err)
 	}
 	if capturedOpts.ProviderPTY {
@@ -412,18 +434,159 @@ func TestRunHonorsExplicitCodexPTYOverride(t *testing.T) {
 	cmd := &cobraCommandClone{Command: *runCmd}
 	cmd.ResetFlagsForTest()
 	cmd.Command.SetContext(context.Background())
-	runProviderName = "codex"
 	if err := cmd.Command.Flags().Set("provider-pty", "true"); err != nil {
 		t.Fatalf("set provider-pty: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, nil); err != nil {
+	if err := runRun(&cmd.Command, []string{"codex"}); err != nil {
 		t.Fatalf("runRun returned error: %v", err)
 	}
 	if !capturedOpts.ProviderPTY {
 		t.Fatalf("expected explicit provider-pty override to be honored, got %+v", capturedOpts)
+	}
+}
+
+func TestRunNonInteractiveMissingContextPrintsOnboardingHint(t *testing.T) {
+	initRunCommandVars()
+
+	oldLoad := runLoadUserConfig
+	oldResolveSettings := runResolveSettings
+	oldResolveClient := runResolveClientForDir
+	oldNewScreen := runNewScreenController
+	t.Cleanup(func() {
+		runLoadUserConfig = oldLoad
+		runResolveSettings = oldResolveSettings
+		runResolveClientForDir = oldResolveClient
+		runNewScreenController = oldNewScreen
+		initRunCommandVars()
+	})
+
+	runLoadUserConfig = func(dir string) (awrun.UserConfig, error) { return awrun.UserConfig{}, nil }
+	runResolveSettings = func(cfg awrun.UserConfig, overrides awrun.SettingOverrides) (awrun.Settings, error) {
+		return awrun.Settings{BasePrompt: "mission"}, nil
+	}
+	runResolveClientForDir = func(dir string) (*aweb.Client, *awconfig.Selection, error) {
+		return nil, nil, errors.New("no default account configured")
+	}
+	runNewScreenController = func(in io.Reader, out io.Writer) *awrun.ScreenController { return nil }
+
+	cmd := &cobraCommandClone{Command: *runCmd}
+	cmd.ResetFlagsForTest()
+	cmd.Command.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
+
+	err := runRun(&cmd.Command, []string{"claude"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "current directory is not initialized for aw") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
+	initRunCommandVars()
+
+	oldLoad := runLoadUserConfig
+	oldResolveSettings := runResolveSettings
+	oldResolveClient := runResolveClientForDir
+	oldNewScreen := runNewScreenController
+	oldNewProvider := runNewProvider
+	oldNewLoop := runNewLoop
+	oldExecuteLoop := runExecuteLoop
+	oldNewEventBus := runNewEventBus
+	oldResolveBaseURLForInit := runResolveBaseURLForInit
+	oldExecuteInitFlow := runExecuteInitFlow
+	oldFetchInitSuggestion := runFetchInitSuggestion
+	oldPrintInitSummary := runPrintInitSummary
+	oldPrintPostInitActions := runPrintPostInitActions
+	t.Cleanup(func() {
+		runLoadUserConfig = oldLoad
+		runResolveSettings = oldResolveSettings
+		runResolveClientForDir = oldResolveClient
+		runNewScreenController = oldNewScreen
+		runNewProvider = oldNewProvider
+		runNewLoop = oldNewLoop
+		runExecuteLoop = oldExecuteLoop
+		runNewEventBus = oldNewEventBus
+		runResolveBaseURLForInit = oldResolveBaseURLForInit
+		runExecuteInitFlow = oldExecuteInitFlow
+		runFetchInitSuggestion = oldFetchInitSuggestion
+		runPrintInitSummary = oldPrintInitSummary
+		runPrintPostInitActions = oldPrintPostInitActions
+		initRunCommandVars()
+	})
+
+	t.Setenv("AWEB_API_KEY", "aw_sk_project")
+	t.Setenv("AWEB_URL", "https://app.aweb.ai")
+	t.Setenv("AWEB_ALIAS", "")
+
+	runLoadUserConfig = func(dir string) (awrun.UserConfig, error) { return awrun.UserConfig{}, nil }
+	runResolveSettings = func(cfg awrun.UserConfig, overrides awrun.SettingOverrides) (awrun.Settings, error) {
+		return awrun.Settings{BasePrompt: "mission"}, nil
+	}
+
+	var resolveCalls int
+	runResolveClientForDir = func(dir string) (*aweb.Client, *awconfig.Selection, error) {
+		resolveCalls++
+		if resolveCalls == 1 {
+			return nil, nil, errors.New("no default account configured")
+		}
+		return &aweb.Client{}, &awconfig.Selection{NamespaceSlug: "team", IdentityHandle: "rose"}, nil
+	}
+	runNewScreenController = func(in io.Reader, out io.Writer) *awrun.ScreenController {
+		return &awrun.ScreenController{}
+	}
+	runNewProvider = func(name string) (awrun.Provider, error) {
+		return awrun.ClaudeProvider{}, nil
+	}
+	runNewLoop = func(provider awrun.Provider, out io.Writer) *awrun.Loop {
+		return awrun.NewLoop(provider, out)
+	}
+	runExecuteLoop = func(loop *awrun.Loop, ctx context.Context, opts awrun.LoopOptions) error {
+		return nil
+	}
+	runNewEventBus = func(client *aweb.Client) *awrun.EventBus { return nil }
+	runResolveBaseURLForInit = func(baseURL, serverName string) (string, string, *awconfig.GlobalConfig, error) {
+		return "https://app.aweb.ai/api", "app.aweb.ai", nil, nil
+	}
+	runFetchInitSuggestion = func(baseURL, nsSlug, authToken string) *awid.SuggestAliasPrefixResponse {
+		return &awid.SuggestAliasPrefixResponse{NamePrefix: "alice"}
+	}
+
+	var capturedOpts initOptions
+	runExecuteInitFlow = func(opts initOptions) (*initResult, error) {
+		capturedOpts = opts
+		return &initResult{
+			Response:    &awid.BootstrapIdentityResponse{APIKey: "aw_sk_new", Alias: "alice", NamespaceSlug: "team", ProjectSlug: "team", Lifetime: awid.LifetimeEphemeral},
+			AccountName: "acct-app__team__alice",
+			ServerName:  "app.aweb.ai",
+		}, nil
+	}
+	runPrintInitSummary = func(resp *awid.BootstrapIdentityResponse, accountName, serverName, role string, attachResult *contextAttachResult, signingKeyPath, workingDir, headline string) {
+	}
+	runPrintPostInitActions = func(result *initResult, workingDir string) {}
+
+	cmd := &cobraCommandClone{Command: *runCmd}
+	cmd.ResetFlagsForTest()
+	cmd.Command.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	setRunCommandIO(&cmd.Command, strings.NewReader("\n\n\n\n\n"), &stdout, &stderr)
+
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
+		t.Fatalf("runRun returned error: %v", err)
+	}
+	if capturedOpts.Flow != flowProjectKey {
+		t.Fatalf("expected project-key onboarding flow, got %+v", capturedOpts)
+	}
+	if capturedOpts.IdentityAlias != "alice" {
+		t.Fatalf("expected suggested alias to be accepted, got %+v", capturedOpts)
+	}
+	if resolveCalls < 2 {
+		t.Fatalf("expected client resolution to be retried after onboarding, got %d calls", resolveCalls)
 	}
 }
 
@@ -722,7 +885,7 @@ func TestRunUsesWakeEventToTriggerSecondCycle(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, nil); err != nil {
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
 		t.Fatalf("runRun returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
@@ -833,7 +996,7 @@ func TestRunUsesActionableWakeEventToTriggerSecondCycle(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, nil); err != nil {
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
 		t.Fatalf("runRun returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
@@ -910,7 +1073,7 @@ func TestRunContinuePrintsRecentInteractionRecap(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	setRunCommandIO(&cmd.Command, strings.NewReader(""), &stdout, &stderr)
 
-	if err := runRun(&cmd.Command, []string{"continue"}); err != nil {
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
 		t.Fatalf("runRun returned error: %v", err)
 	}
 	out := stdout.String()
@@ -934,6 +1097,7 @@ type cobraCommandClone struct {
 
 func (c *cobraCommandClone) ResetFlagsForTest() {
 	c.Command.ResetFlags()
+	c.Command.Flags().StringVar(&runInitialPrompt, "prompt", "", "")
 	c.Command.Flags().StringVar(&runBasePrompt, "base-prompt", "", "")
 	c.Command.Flags().StringVar(&runWorkPrompt, "work-prompt-suffix", "", "")
 	c.Command.Flags().StringVar(&runCommsPrompt, "comms-prompt-suffix", "", "")
@@ -945,7 +1109,6 @@ func (c *cobraCommandClone) ResetFlagsForTest() {
 	c.Command.Flags().StringVar(&runWorkingDir, "dir", "", "")
 	c.Command.Flags().StringVar(&runAllowedTools, "allowed-tools", "", "")
 	c.Command.Flags().StringVar(&runModel, "model", "", "")
-	c.Command.Flags().StringVar(&runProviderName, "provider", "claude", "")
 	c.Command.Flags().BoolVar(&runProviderPTY, "provider-pty", false, "")
 	c.Command.Flags().BoolVar(&runAutofeedWork, "autofeed-work", false, "")
 	c.Command.Flags().BoolVar(&runInitConfig, "init", false, "")

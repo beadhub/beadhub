@@ -332,21 +332,21 @@ func runSpawnAcceptInvite(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := initOptions{
-		Flow:                   flowInvite,
-		WorkingDir:             workingDir,
-		BaseURL:                baseURL,
-		ServerName:             serverName,
-		IdentityAlias:          alias,
-		IdentityName:           name,
-		AddressReachability:    normalizeAddressReachability(strings.TrimSpace(initReachability)),
-		HumanName:              resolveHumanName(),
-		AgentType:              resolveAgentType(),
-		SaveConfig:             initSaveConfig,
-		SetDefault:             initSetDefault,
-		WriteContext:           initWriteContext,
-		InviteToken:            token,
-		WorkspaceRole:          normalizeWorkspaceRole(resolveRoleFlag()),
-		Lifetime:               resolveInitLifetime(initPermanent),
+		Flow:                flowInvite,
+		WorkingDir:          workingDir,
+		BaseURL:             baseURL,
+		ServerName:          serverName,
+		IdentityAlias:       alias,
+		IdentityName:        name,
+		AddressReachability: normalizeAddressReachability(strings.TrimSpace(initReachability)),
+		HumanName:           resolveHumanName(),
+		AgentType:           resolveAgentType(),
+		SaveConfig:          initSaveConfig,
+		SetDefault:          initSetDefault,
+		WriteContext:        initWriteContext,
+		InviteToken:         token,
+		WorkspaceRole:       normalizeWorkspaceRole(resolveRoleFlag()),
+		Lifetime:            resolveInitLifetime(initPermanent),
 	}
 
 	result, err := executeInit(opts)
@@ -357,7 +357,7 @@ func runSpawnAcceptInvite(cmd *cobra.Command, args []string) error {
 	if jsonFlag {
 		printJSON(result.Response)
 	} else {
-		printInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, "Accepted spawn invite")
+		printInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, opts.WorkingDir, "Accepted spawn invite")
 	}
 	printPostInitActions(result, opts.WorkingDir)
 	return nil

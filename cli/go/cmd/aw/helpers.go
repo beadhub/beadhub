@@ -561,9 +561,16 @@ func sanitizeSlug(s string) string {
 	return out
 }
 
-func promptString(label, defaultValue string) (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Fprintf(os.Stderr, "%s [%s]: ", label, defaultValue)
+func bufferedPromptReader(in io.Reader) *bufio.Reader {
+	if reader, ok := in.(*bufio.Reader); ok {
+		return reader
+	}
+	return bufio.NewReader(in)
+}
+
+func promptStringWithIO(label, defaultValue string, in io.Reader, out io.Writer) (string, error) {
+	reader := bufferedPromptReader(in)
+	fmt.Fprintf(out, "%s [%s]: ", label, defaultValue)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -575,13 +582,17 @@ func promptString(label, defaultValue string) (string, error) {
 	return line, nil
 }
 
-func promptRequiredString(label, suggestedValue string) (string, error) {
-	reader := bufio.NewReader(os.Stdin)
+func promptString(label, defaultValue string) (string, error) {
+	return promptStringWithIO(label, defaultValue, os.Stdin, os.Stderr)
+}
+
+func promptRequiredStringWithIO(label, suggestedValue string, in io.Reader, out io.Writer) (string, error) {
+	reader := bufferedPromptReader(in)
 	for {
 		if strings.TrimSpace(suggestedValue) != "" {
-			fmt.Fprintf(os.Stderr, "%s [%s]: ", label, suggestedValue)
+			fmt.Fprintf(out, "%s [%s]: ", label, suggestedValue)
 		} else {
-			fmt.Fprintf(os.Stderr, "%s: ", label)
+			fmt.Fprintf(out, "%s: ", label)
 		}
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -594,8 +605,12 @@ func promptRequiredString(label, suggestedValue string) (string, error) {
 		if strings.TrimSpace(suggestedValue) != "" {
 			return strings.TrimSpace(suggestedValue), nil
 		}
-		fmt.Fprintf(os.Stderr, "%s is required.\n", label)
+		fmt.Fprintf(out, "%s is required.\n", label)
 	}
+}
+
+func promptRequiredString(label, suggestedValue string) (string, error) {
+	return promptRequiredStringWithIO(label, suggestedValue, os.Stdin, os.Stderr)
 }
 
 func promptIndexedChoice(label string, options []string, defaultIndex int, in io.Reader, out io.Writer) (string, error) {
@@ -611,7 +626,7 @@ func promptIndexedChoice(label string, options []string, defaultIndex int, in io
 		fmt.Fprintf(out, "  %d. %s\n", i+1, option)
 	}
 
-	reader := bufio.NewReader(in)
+	reader := bufferedPromptReader(in)
 	for {
 		if hasDefault {
 			fmt.Fprintf(out, "%s number [%d]: ", label, defaultIndex+1)

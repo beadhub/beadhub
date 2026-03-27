@@ -147,7 +147,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if jsonFlag {
 		printJSON(result.Response)
 	} else {
-		printInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, "Initialized workspace")
+		printInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, opts.WorkingDir, "Initialized workspace")
 	}
 	printPostInitActions(result, opts.WorkingDir)
 	return nil
@@ -649,7 +649,7 @@ func shouldWarnOnWorkspaceAttach(err error) bool {
 	return false
 }
 
-func printInitSummary(resp *awid.BootstrapIdentityResponse, accountName, serverName, role string, attachResult *contextAttachResult, signingKeyPath, headline string) {
+func printInitSummary(resp *awid.BootstrapIdentityResponse, accountName, serverName, role string, attachResult *contextAttachResult, signingKeyPath, workingDir, headline string) {
 	if resp == nil {
 		return
 	}
@@ -713,6 +713,13 @@ func printInitSummary(resp *awid.BootstrapIdentityResponse, accountName, serverN
 			fmt.Println("Context:    attached local directory")
 		}
 	}
+	if wd := abbreviateUserHome(workingDir); wd != "" {
+		fmt.Printf("Directory:  %s\n", wd)
+	}
+	if handle != "" {
+		fmt.Printf("Workspace:  this directory is now agent %s\n", handle)
+	}
+	fmt.Println("State:      .aw/ stores this agent's local identity and workspace binding")
 }
 
 func printPostInitActions(result *initResult, workingDir string) {
@@ -735,22 +742,64 @@ func printPostInitActions(result *initResult, workingDir string) {
 		printClaudeHooksResult(hookResult)
 	}
 	if !jsonFlag {
-		printInitNextSteps(initInjectDocs, initSetupHooks)
+		printInitNextSteps(result, workingDir, initInjectDocs, initSetupHooks)
 	}
 }
 
-func printInitNextSteps(didInjectDocs, didSetupHooks bool) {
-	if didInjectDocs && didSetupHooks {
+func printInitNextSteps(result *initResult, workingDir string, didInjectDocs, didSetupHooks bool) {
+	lines := initNextStepLines(result, workingDir, didInjectDocs, didSetupHooks)
+	if len(lines) == 0 {
 		return
 	}
 	fmt.Println()
 	fmt.Println("Next steps:")
+	for _, line := range lines {
+		fmt.Println(line)
+	}
+}
+
+func initNextStepLines(result *initResult, workingDir string, didInjectDocs, didSetupHooks bool) []string {
+	lines := []string{
+		formatInitNextStep("aw run codex", "Start Codex in this directory"),
+		formatInitNextStep("aw run claude", "Start Claude in this directory"),
+	}
+
+	if _, err := currentGitWorktreeRootFromDir(workingDir); err == nil {
+		lines = append(lines, formatInitNextStep("aw workspace add-worktree <role>", "Create another agent in this same git repo"))
+	}
+	lines = append(lines, formatInitNextStep("aw init", "Initialize another repo or plain directory as another agent"))
+
+	if shouldSuggestClaimHuman(result) {
+		lines = append(lines, formatInitNextStep("aw claim-human --email you@example.com", "Attach your human account for dashboard access"))
+	}
 	if !didInjectDocs {
-		fmt.Println("  aw init --inject-docs    Add coordination instructions to CLAUDE.md / AGENTS.md")
+		lines = append(lines, formatInitNextStep("aw init --inject-docs", "Add coordination instructions to CLAUDE.md / AGENTS.md"))
 	}
 	if !didSetupHooks {
-		fmt.Println("  aw init --setup-hooks    Set up Claude Code chat notification hook")
+		lines = append(lines, formatInitNextStep("aw init --setup-hooks", "Set up Claude Code chat notification hook"))
 	}
+	return lines
+}
+
+func formatInitNextStep(command, description string) string {
+	return fmt.Sprintf("  %-36s %s", command, description)
+}
+
+func shouldSuggestClaimHuman(result *initResult) bool {
+	if result == nil {
+		return false
+	}
+	values := []string{result.ServerName, result.ExportBaseURL}
+	for _, value := range values {
+		lower := strings.ToLower(strings.TrimSpace(value))
+		if lower == "" {
+			continue
+		}
+		if strings.Contains(lower, "app.aweb.ai") || strings.Contains(lower, "aweb.ai") {
+			return true
+		}
+	}
+	return false
 }
 
 func acceptInviteViaCloud(

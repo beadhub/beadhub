@@ -45,7 +45,7 @@ func runProjectCreate(cmd *cobra.Command, args []string) error {
 	if jsonFlag {
 		printJSON(result.Response)
 	} else {
-		printInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, "Created project and initialized workspace")
+		printInitSummary(result.Response, result.AccountName, result.ServerName, result.Role, result.AttachResult, result.SigningKeyPath, opts.WorkingDir, "Created project and initialized workspace")
 	}
 	printPostInitActions(result, opts.WorkingDir)
 	return nil

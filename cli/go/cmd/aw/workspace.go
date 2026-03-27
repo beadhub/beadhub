@@ -653,13 +653,16 @@ func formatWorkspaceInit(v any) string {
 func formatWorkspaceAddWorktree(v any) string {
 	out := v.(workspaceAddWorktreeOutput)
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Worktree created at %s\n", abbreviateUserHome(out.WorktreePath)))
-	sb.WriteString(fmt.Sprintf("Alias:    %s\n", out.Alias))
-	sb.WriteString(fmt.Sprintf("Role:     %s\n", out.Role))
-	sb.WriteString(fmt.Sprintf("Branch:   %s\n", out.Branch))
+	sb.WriteString(fmt.Sprintf("New agent worktree created at %s\n", abbreviateUserHome(out.WorktreePath)))
+	sb.WriteString(fmt.Sprintf("Alias:      %s\n", out.Alias))
+	sb.WriteString(fmt.Sprintf("Role:       %s\n", out.Role))
+	sb.WriteString(fmt.Sprintf("Branch:     %s\n", out.Branch))
+	sb.WriteString(fmt.Sprintf("Workspace:  this worktree is now agent %s\n", out.Alias))
+	sb.WriteString("State:      .aw/ in that worktree stores the local identity and workspace binding\n")
 	sb.WriteString("\nTo use:\n")
 	sb.WriteString(fmt.Sprintf("  cd %s\n", abbreviateUserHome(out.WorktreePath)))
-	sb.WriteString("  aw work ready\n")
+	sb.WriteString("  aw run codex\n")
+	sb.WriteString("  aw run claude\n")
 	return sb.String()
 }
 
