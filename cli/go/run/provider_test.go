@@ -137,17 +137,17 @@ func TestCodexProviderBuildResumeCommand(t *testing.T) {
 	}
 
 	joined := strings.Join(command, " ")
-	if !strings.Contains(joined, "codex exec") {
+	if !strings.Contains(joined, "codex exec resume --skip-git-repo-check --full-auto") {
 		t.Fatalf("expected codex exec base command, got: %q", joined)
 	}
-	if !strings.Contains(joined, "resume sess-42") {
+	if !strings.Contains(joined, "sess-42") {
 		t.Fatalf("expected resume session id, got: %q", joined)
 	}
 	if !strings.Contains(joined, "-m gpt-5-codex") {
 		t.Fatalf("expected model flag, got: %q", joined)
 	}
-	if !strings.Contains(joined, "--add-dir /tmp/gitdir") {
-		t.Fatalf("expected add-dir flag, got: %q", joined)
+	if strings.Contains(joined, "--add-dir /tmp/gitdir") {
+		t.Fatalf("did not expect add-dir flag on codex resume command, got: %q", joined)
 	}
 	if !strings.Contains(joined, "--profile ci") {
 		t.Fatalf("expected forwarded provider args, got: %q", joined)

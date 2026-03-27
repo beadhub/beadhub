@@ -64,18 +64,12 @@ func (CodexProvider) BuildResumeCommand(opts BuildOptions) ([]string, error) {
 		return nil, fmt.Errorf("session id is required")
 	}
 
-	command := []string{"codex", "exec"}
+	command := []string{"codex", "exec", "resume", "--skip-git-repo-check", "--full-auto"}
 	if strings.TrimSpace(opts.Model) != "" {
 		command = append(command, "-m", opts.Model)
 	}
-	for _, dir := range opts.AddDirs {
-		if strings.TrimSpace(dir) == "" {
-			continue
-		}
-		command = append(command, "--add-dir", dir)
-	}
 	command = append(command, opts.ProviderArgs...)
-	command = append(command, "resume", sessionID)
+	command = append(command, sessionID)
 	return command, nil
 }
 
