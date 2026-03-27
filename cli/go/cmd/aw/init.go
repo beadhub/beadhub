@@ -477,7 +477,7 @@ func collectInitOptionsWithInput(flow initFlow, input initCollectionInput) (init
 	alias := ""
 	aliasExplicit := false
 	name := strings.TrimSpace(input.Name)
-	inviteAliasOptional := flow == flowInvite
+	inviteAliasOptional := flow == flowInvite && !input.Interactive
 	deferAliasPrompt := input.DeferAliasPrompt && flow == flowHeadless && !input.Permanent
 	if !input.Permanent {
 		alias = strings.TrimSpace(input.Alias)

@@ -568,7 +568,7 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 		return "https://app.aweb.ai/api", "app.aweb.ai", nil, nil
 	}
 	initFetchSuggestionForCollection = func(baseURL, nsSlug, authToken string) *awid.SuggestAliasPrefixResponse {
-		return &awid.SuggestAliasPrefixResponse{NamePrefix: "alice", Roles: []string{"developer", "reviewer"}}
+		return &awid.SuggestAliasPrefixResponse{NamePrefix: "alice", Roles: nil}
 	}
 
 	var capturedOpts initOptions
@@ -587,7 +587,7 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 	cmd.ResetFlagsForTest()
 	cmd.Command.SetContext(context.Background())
 	var stdout, stderr bytes.Buffer
-	setRunCommandIO(&cmd.Command, strings.NewReader("\n\n2\n1\nAlice Example\n"), &stdout, &stderr)
+	setRunCommandIO(&cmd.Command, strings.NewReader("\n\n2\nAlice Example\n"), &stdout, &stderr)
 
 	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
 		t.Fatalf("runRun returned error: %v", err)
@@ -601,8 +601,11 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 	if capturedOpts.Lifetime != awid.LifetimePersistent {
 		t.Fatalf("expected persistent lifetime, got %+v", capturedOpts)
 	}
-	if capturedOpts.WorkspaceRole != "developer" {
-		t.Fatalf("expected prompted role to be used, got %+v", capturedOpts)
+	if capturedOpts.WorkspaceRole != "" {
+		t.Fatalf("expected role selection to be deferred until after bootstrap, got %+v", capturedOpts)
+	}
+	if !capturedOpts.PromptRoleAfterBootstrap {
+		t.Fatalf("expected post-bootstrap role prompt to be enabled, got %+v", capturedOpts)
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("expected client resolution after onboarding, got %d calls", resolveCalls)

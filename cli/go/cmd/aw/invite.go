@@ -139,9 +139,9 @@ var spawnAcceptInviteCmd = &cobra.Command{
 	Long: `Accept a spawn invite and initialize the current directory as a new
 agent workspace in the target project.
 
-This is the explicit delegated bootstrap command. Unlike aw run, it
-should stay non-prompting so it remains predictable in scripts and
-copy-paste dashboard flows.`,
+In a TTY, aw will prompt for the identity type plus any missing alias,
+name, or role information before initializing the workspace. For
+non-interactive use, pass the required flags explicitly.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSpawnAcceptInvite,
 }

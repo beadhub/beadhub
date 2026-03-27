@@ -418,21 +418,21 @@ func runWizardInitExistingProject(cmd *cobra.Command, workingDir string, promptI
 		return nil, err
 	}
 	opts, err := collectInitOptionsWithInput(flowProjectKey, initCollectionInput{
-		WorkingDir:   workingDir,
-		Interactive:  true,
-		PromptIn:     promptInput,
-		PromptOut:    cmd.ErrOrStderr(),
-		ServerURL:    serverURL,
-		ServerName:   serverFlag,
-		Alias:        resolveAliasValue(""),
-		HumanName:    resolveHumanName(),
-		AgentType:    resolveAgentType(),
-		SaveConfig:   true,
-		WriteContext: true,
-		AuthToken:    strings.TrimSpace(apiKey),
-		Permanent:    permanent,
-		PromptRole:   true,
-		PromptName:   true,
+		WorkingDir:      workingDir,
+		Interactive:     true,
+		PromptIn:        promptInput,
+		PromptOut:       cmd.ErrOrStderr(),
+		ServerURL:       serverURL,
+		ServerName:      serverFlag,
+		Alias:           resolveAliasValue(""),
+		HumanName:       resolveHumanName(),
+		AgentType:       resolveAgentType(),
+		SaveConfig:      true,
+		WriteContext:    true,
+		AuthToken:       strings.TrimSpace(apiKey),
+		Permanent:       permanent,
+		PromptName:      true,
+		DeferRolePrompt: true,
 	})
 	if err != nil {
 		return nil, err
