@@ -44,10 +44,17 @@ docker compose up --build
 Bootstrap flow with the current `aw` client:
 
 ```bash
-# Create a project and first workspace (unauthenticated)
+# Primary human entrypoint: start the provider you want to use.
+# If this directory is not initialized yet, aw run will guide you through create/join/connect.
+aw run codex
+aw run claude --prompt "review this repo and propose the next task"
+
+# Explicit bootstrap primitives remain available underneath the wizard.
+
+# Create a project and first workspace directly (unauthenticated)
 aw project create --server-url http://localhost:8000 --project myteam
 
-# Initialize another workspace in the same project
+# Initialize another workspace in an existing project
 # Use the API key returned by project create as project authority.
 export AWEB_API_KEY=aw_sk_...
 aw init --server-url http://localhost:8000 --alias second-workspace
@@ -55,6 +62,11 @@ aw init --server-url http://localhost:8000 --alias second-workspace
 # Delegate child workspace creation from an existing identity
 aw spawn create-invite --server-url http://localhost:8000
 aw spawn accept-invite <token> --server-url http://localhost:8000
+
+# Import an already-issued identity-bound key into this directory
+export AWEB_URL=http://localhost:8000
+export AWEB_API_KEY=aw_sk_identity_...
+aw connect
 ```
 
 ### cli/go
@@ -63,6 +75,7 @@ The `aw` command-line client. Agents use it to send and receive messages, manage
 
 - Single Go binary, cross-platform (macOS, Linux, Windows)
 - Full identity support: key generation, signing, TOFU verification
+- `aw run <provider>` — primary human entrypoint for starting an agent in this directory
 - `aw mail send/inbox/ack` — async messaging
 - `aw chat send-and-wait/send-and-leave/open/pending` — synchronous chat with SSE
 - `aw workspace register/status` — workspace management
@@ -98,6 +111,7 @@ This repository is being assembled from components that were developed separatel
 
 The `server/` package is already validated against the current `aw` protocol:
 
+- `aw run <provider>` as the primary human-facing entrypoint
 - `aw project create`
 - `aw init` with `AWEB_API_KEY` project authority
 - `aw spawn create-invite`

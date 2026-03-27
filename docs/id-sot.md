@@ -702,6 +702,7 @@ Notable help/usage details:
 - `aw project create --namespace <slug>` optionally sets an authoritative namespace slug distinct from the project slug; when omitted, the namespace defaults to the project slug
 - `aw connect` imports current server identity state; it does not create or mutate an identity
 - `aw init` supports `--permanent --name <name>` for explicit durable self-custodial creation
+- `aw spawn accept-invite` remains an explicit delegated bootstrap command; unlike `aw run`, it should stay non-prompting
 - `aw reset` is local-only; it removes `.aw/context` without mutating server-side identity state
 
 ### Identity
@@ -771,7 +772,7 @@ Notable help/usage details:
 - `aw lock`: distributed locks
 - `aw notify`: check for pending chat notifications for Claude Code hooks
 - `aw policy`: read project policy and role playbooks
-- `aw run [prompt]`: run an AI coding agent in a loop
+- `aw run <provider>`: run an AI coding agent in a loop
 - `aw task`: manage tasks
 - `aw work`: discover coordination-aware work
 
@@ -807,6 +808,8 @@ Notable help/usage details:
 
 - `aw notify` is designed for Claude Code `PostToolUse` hook integration
 - `aw run` is intentionally aw-first and excludes bead-specific dispatch/policy glue
+- `aw run` is the primary human entrypoint; when the current directory is not initialized and a TTY is available, it offers guided onboarding before starting the requested provider
+- `aw run` takes the provider as a positional argument and uses `--prompt` for the first prompt
 - `aw run` supports `--init`, `--continue`, provider/model selection, wake-stream options, and prompt overrides
 
 ### Utility
@@ -828,6 +831,7 @@ Subcommands:
 - `aw init` is existing-project workspace init; it is not project creation and not hosted bootstrap
 - `aw project create` is the create-project entry flow
 - `aw spawn` is the delegated workspace-plus-identity creation surface
+- `aw run <provider>` is the primary human-facing entrypoint and may route into `project create`, `init`, `spawn accept-invite`, or `connect` before starting the provider
 - permanent self-custodial identities are chosen only at creation time via `--permanent --name <name>`
 - `aw identity` is the single public family for lifecycle, settings, and key management
 - `aw whoami` is the canonical human-facing identity-inspection command; `aw introspect` remains as the technical alias
