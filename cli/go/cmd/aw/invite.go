@@ -306,9 +306,6 @@ func newUnauthenticatedCloudClient(baseURL string) (*aweb.Client, error) {
 
 func runSpawnAcceptInvite(cmd *cobra.Command, args []string) error {
 	token := strings.TrimSpace(args[0])
-	if !strings.HasPrefix(token, "aw_inv_") {
-		return usageError("invalid invite token (expected aw_inv_...)")
-	}
 	if err := validateInitIdentityFlags(); err != nil {
 		return err
 	}
@@ -317,36 +314,32 @@ func runSpawnAcceptInvite(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	baseURL, serverName, _, err := resolveBaseURLForInit(initServerURL, serverFlag)
+	opts, err := collectInviteInitOptionsWithInput(token, initCollectionInput{
+		WorkingDir:  workingDir,
+		Interactive: false,
+		JSONOutput:  jsonFlag,
+		PromptIn:    os.Stdin,
+		PromptOut:   os.Stderr,
+		ServerURL:   initServerURL,
+		ServerName:  serverFlag,
+		Alias: func() string {
+			if initPermanent {
+				return strings.TrimSpace(initAlias)
+			}
+			return resolveAliasValue(strings.TrimSpace(initAlias))
+		}(),
+		Name:         strings.TrimSpace(initName),
+		Reachability: strings.TrimSpace(initReachability),
+		HumanName:    resolveHumanNameValue(strings.TrimSpace(initHumanName)),
+		AgentType:    resolveAgentTypeValue(strings.TrimSpace(initAgentType)),
+		SaveConfig:   initSaveConfig,
+		SetDefault:   initSetDefault,
+		WriteContext: initWriteContext,
+		Role:         resolveRequestedRole(strings.TrimSpace(initRole)),
+		Permanent:    initPermanent,
+	})
 	if err != nil {
 		return err
-	}
-
-	alias := ""
-	name := strings.TrimSpace(initName)
-	if !initPermanent {
-		alias = strings.TrimSpace(initAlias)
-		if alias == "" {
-			alias = strings.TrimSpace(os.Getenv("AWEB_ALIAS"))
-		}
-	}
-
-	opts := initOptions{
-		Flow:                flowInvite,
-		WorkingDir:          workingDir,
-		BaseURL:             baseURL,
-		ServerName:          serverName,
-		IdentityAlias:       alias,
-		IdentityName:        name,
-		AddressReachability: normalizeAddressReachability(strings.TrimSpace(initReachability)),
-		HumanName:           resolveHumanName(),
-		AgentType:           resolveAgentType(),
-		SaveConfig:          initSaveConfig,
-		SetDefault:          initSetDefault,
-		WriteContext:        initWriteContext,
-		InviteToken:         token,
-		WorkspaceRole:       normalizeWorkspaceRole(resolveRoleFlag()),
-		Lifetime:            resolveInitLifetime(initPermanent),
 	}
 
 	result, err := executeInit(opts)
@@ -361,16 +354,4 @@ func runSpawnAcceptInvite(cmd *cobra.Command, args []string) error {
 	}
 	printPostInitActions(result, opts.WorkingDir)
 	return nil
-}
-
-// resolveRoleFlag reads the --role flag and AWEB_ROLE env var.
-// Used by flows that can't validate against the policy pre-auth
-// (e.g., spawn accept-invite where the invite token is the only
-// credential). Server-side validation happens on accept.
-func resolveRoleFlag() string {
-	role := strings.TrimSpace(initRole)
-	if role == "" {
-		role = strings.TrimSpace(os.Getenv("AWEB_ROLE"))
-	}
-	return role
 }

@@ -614,6 +614,116 @@ func TestRunInteractiveOnboardsWithProjectKeyBeforeRunning(t *testing.T) {
 	}
 }
 
+func TestRunInteractiveOnboardsWithInviteTokenBeforeRunning(t *testing.T) {
+	initRunCommandVars()
+
+	oldLoad := runLoadUserConfig
+	oldResolveSettings := runResolveSettings
+	oldResolveClient := runResolveClientForDir
+	oldNewScreen := runNewScreenController
+	oldNewProvider := runNewProvider
+	oldNewLoop := runNewLoop
+	oldExecuteLoop := runExecuteLoop
+	oldNewEventBus := runNewEventBus
+	oldWorkspaceState := runWorkspaceStateForDir
+	oldResolveBaseURLForCollection := initResolveBaseURLForCollection
+	oldExecuteInitFlow := runExecuteInitFlow
+	oldFetchSuggestionForCollection := initFetchSuggestionForCollection
+	oldPrintInitSummary := runPrintInitSummary
+	oldPrintPostInitActions := runPrintPostInitActions
+	t.Cleanup(func() {
+		runLoadUserConfig = oldLoad
+		runResolveSettings = oldResolveSettings
+		runResolveClientForDir = oldResolveClient
+		runNewScreenController = oldNewScreen
+		runNewProvider = oldNewProvider
+		runNewLoop = oldNewLoop
+		runExecuteLoop = oldExecuteLoop
+		runNewEventBus = oldNewEventBus
+		runWorkspaceStateForDir = oldWorkspaceState
+		initResolveBaseURLForCollection = oldResolveBaseURLForCollection
+		runExecuteInitFlow = oldExecuteInitFlow
+		initFetchSuggestionForCollection = oldFetchSuggestionForCollection
+		runPrintInitSummary = oldPrintInitSummary
+		runPrintPostInitActions = oldPrintPostInitActions
+		initRunCommandVars()
+	})
+
+	t.Setenv("AWEB_API_KEY", "")
+	t.Setenv("AWEB_URL", "https://app.aweb.ai")
+	t.Setenv("AWEB_ALIAS", "")
+	t.Setenv("AWEB_ROLE", "developer")
+
+	runLoadUserConfig = func(dir string) (awrun.UserConfig, error) { return awrun.UserConfig{}, nil }
+	runResolveSettings = func(cfg awrun.UserConfig, overrides awrun.SettingOverrides) (awrun.Settings, error) {
+		return awrun.Settings{BasePrompt: "mission"}, nil
+	}
+	runWorkspaceStateForDir = func(dir string) (runWorkspaceState, error) { return runWorkspaceStateMissing, nil }
+
+	var resolveCalls int
+	runResolveClientForDir = func(dir string) (*aweb.Client, *awconfig.Selection, error) {
+		resolveCalls++
+		return &aweb.Client{}, &awconfig.Selection{NamespaceSlug: "team", IdentityHandle: "rose"}, nil
+	}
+	runNewScreenController = func(in io.Reader, out io.Writer) *awrun.ScreenController {
+		return &awrun.ScreenController{}
+	}
+	runNewProvider = func(name string) (awrun.Provider, error) {
+		return awrun.ClaudeProvider{}, nil
+	}
+	runNewLoop = func(provider awrun.Provider, out io.Writer) *awrun.Loop {
+		return awrun.NewLoop(provider, out)
+	}
+	runExecuteLoop = func(loop *awrun.Loop, ctx context.Context, opts awrun.LoopOptions) error {
+		return nil
+	}
+	runNewEventBus = func(client *aweb.Client) *awrun.EventBus { return nil }
+	initResolveBaseURLForCollection = func(baseURL, serverName string) (string, string, *awconfig.GlobalConfig, error) {
+		return "https://app.aweb.ai/api", "app.aweb.ai", nil, nil
+	}
+	initFetchSuggestionForCollection = func(baseURL, nsSlug, authToken string) *awid.SuggestAliasPrefixResponse {
+		return nil
+	}
+
+	var capturedOpts initOptions
+	runExecuteInitFlow = func(opts initOptions) (*initResult, error) {
+		capturedOpts = opts
+		return &initResult{
+			Response:    &awid.BootstrapIdentityResponse{APIKey: "aw_sk_new", Alias: "reviewer", NamespaceSlug: "team", ProjectSlug: "team", Lifetime: awid.LifetimeEphemeral},
+			AccountName: "acct-app__team__reviewer",
+			ServerName:  "app.aweb.ai",
+		}, nil
+	}
+	runPrintInitSummary = func(resp *awid.BootstrapIdentityResponse, accountName, serverName, role string, attachResult *contextAttachResult, signingKeyPath, workingDir, headline string) {
+	}
+	runPrintPostInitActions = func(result *initResult, workingDir string) {}
+
+	cmd := &cobraCommandClone{Command: *runCmd}
+	cmd.ResetFlagsForTest()
+	cmd.Command.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	setRunCommandIO(&cmd.Command, strings.NewReader("\n\n\naw_inv_test\n\n\n"), &stdout, &stderr)
+
+	if err := runRun(&cmd.Command, []string{"claude"}); err != nil {
+		t.Fatalf("runRun returned error: %v", err)
+	}
+	if capturedOpts.Flow != flowInvite {
+		t.Fatalf("expected invite onboarding flow, got %+v", capturedOpts)
+	}
+	if capturedOpts.InviteToken != "aw_inv_test" {
+		t.Fatalf("expected invite token to be forwarded, got %+v", capturedOpts)
+	}
+	if capturedOpts.IdentityAlias != "" {
+		t.Fatalf("expected blank alias to be allowed for invite flow, got %+v", capturedOpts)
+	}
+	if capturedOpts.WorkspaceRole != "developer" {
+		t.Fatalf("expected role from env to be preserved, got %+v", capturedOpts)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("expected client resolution after onboarding, got %d calls", resolveCalls)
+	}
+}
+
 func TestRunInteractiveOnboardsWithIdentityKeyViaDashboardPathBeforeRunning(t *testing.T) {
 	initRunCommandVars()
 

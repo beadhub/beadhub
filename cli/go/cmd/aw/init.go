@@ -233,6 +233,15 @@ func collectInitOptionsForFlow(flow initFlow) (initOptions, error) {
 	})
 }
 
+func collectInviteInitOptionsWithInput(token string, input initCollectionInput) (initOptions, error) {
+	token = strings.TrimSpace(token)
+	if !strings.HasPrefix(token, "aw_inv_") {
+		return initOptions{}, usageError("invalid invite token (expected aw_inv_...)")
+	}
+	input.InviteToken = token
+	return collectInitOptionsWithInput(flowInvite, input)
+}
+
 func validateInitIdentityFlags() error {
 	return validateInitIdentityOptions(initPermanent, strings.TrimSpace(initAlias), strings.TrimSpace(initName), strings.TrimSpace(initReachability))
 }
@@ -385,14 +394,17 @@ func collectInitOptionsWithInput(flow initFlow, input initCollectionInput) (init
 	}
 
 	projectSlug := ""
-	if flow != flowProjectKey {
+	if flow == flowHeadless {
 		projectSlug = strings.TrimSpace(input.ProjectSlug)
 	}
-	suggestion := initFetchSuggestionForCollection(baseURL, projectSlug, authToken)
-	if projectSlug == "" && suggestion != nil {
+	var suggestion *awid.SuggestAliasPrefixResponse
+	if flow != flowInvite {
+		suggestion = initFetchSuggestionForCollection(baseURL, projectSlug, authToken)
+	}
+	if flow == flowHeadless && projectSlug == "" && suggestion != nil {
 		projectSlug = strings.TrimSpace(suggestion.ProjectSlug)
 	}
-	if projectSlug == "" && flow != flowProjectKey {
+	if flow == flowHeadless && projectSlug == "" {
 		if input.Interactive && !input.JSONOutput {
 			suggested := sanitizeSlug(filepath.Base(input.WorkingDir))
 			v, err := promptStringWithIO("Project", suggested, input.PromptIn, input.PromptOut)
@@ -416,6 +428,7 @@ func collectInitOptionsWithInput(flow initFlow, input initCollectionInput) (init
 	alias := ""
 	aliasExplicit := false
 	name := strings.TrimSpace(input.Name)
+	inviteAliasOptional := flow == flowInvite
 	if !input.Permanent {
 		alias = strings.TrimSpace(input.Alias)
 		aliasExplicit = alias != ""
@@ -440,13 +453,21 @@ func collectInitOptionsWithInput(flow initFlow, input initCollectionInput) (init
 
 	if !input.Permanent {
 		if input.Interactive && !input.JSONOutput && !aliasExplicit {
-			v, err := promptRequiredStringWithIO("Alias", alias, input.PromptIn, input.PromptOut)
-			if err != nil {
-				return initOptions{}, err
+			if inviteAliasOptional {
+				v, err := promptStringWithIO("Alias (optional)", alias, input.PromptIn, input.PromptOut)
+				if err != nil {
+					return initOptions{}, err
+				}
+				alias = strings.TrimSpace(v)
+			} else {
+				v, err := promptRequiredStringWithIO("Alias", alias, input.PromptIn, input.PromptOut)
+				if err != nil {
+					return initOptions{}, err
+				}
+				alias = strings.TrimSpace(v)
 			}
-			alias = strings.TrimSpace(v)
 		}
-		if strings.TrimSpace(alias) == "" {
+		if strings.TrimSpace(alias) == "" && !inviteAliasOptional {
 			return initOptions{}, usageError("alias is required (use --alias or accept a server-suggested alias)")
 		}
 	}

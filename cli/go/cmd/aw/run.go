@@ -14,7 +14,6 @@ import (
 
 	aweb "github.com/awebai/aw"
 	"github.com/awebai/aw/awconfig"
-	"github.com/awebai/aw/awid"
 	awrun "github.com/awebai/aw/run"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -545,36 +544,29 @@ func runWizardJoinExistingProject(cmd *cobra.Command, workingDir string, promptI
 	if err != nil {
 		return err
 	}
-	serverDefault := strings.TrimSpace(os.Getenv("AWEB_URL"))
-	if serverDefault == "" {
-		serverDefault = DefaultServerURL
-	}
-	serverURL, err := promptRequiredStringWithIO("Server URL", serverDefault, promptInput, cmd.ErrOrStderr())
+	serverURL, err := promptRequiredStringWithIO("Server URL", defaultWizardServerURL(), promptInput, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
-	baseURL, serverName, _, err := initResolveBaseURLForCollection(serverURL, serverFlag)
-	if err != nil {
-		return err
-	}
-	alias, err := promptRequiredStringWithIO("Alias", strings.TrimSpace(os.Getenv("AWEB_ALIAS")), promptInput, cmd.ErrOrStderr())
+	opts, err := collectInviteInitOptionsWithInput(token, initCollectionInput{
+		WorkingDir:   workingDir,
+		Interactive:  true,
+		PromptIn:     promptInput,
+		PromptOut:    cmd.ErrOrStderr(),
+		ServerURL:    serverURL,
+		ServerName:   serverFlag,
+		Alias:        resolveAliasValue(""),
+		HumanName:    resolveHumanName(),
+		AgentType:    resolveAgentType(),
+		SaveConfig:   true,
+		WriteContext: true,
+		Role:         resolveRequestedRole(""),
+	})
 	if err != nil {
 		return err
 	}
 
-	result, err := runExecuteInitFlow(initOptions{
-		Flow:          flowInvite,
-		WorkingDir:    workingDir,
-		BaseURL:       baseURL,
-		ServerName:    serverName,
-		IdentityAlias: alias,
-		HumanName:     resolveHumanName(),
-		AgentType:     resolveAgentType(),
-		SaveConfig:    true,
-		WriteContext:  true,
-		InviteToken:   token,
-		Lifetime:      awid.LifetimeEphemeral,
-	})
+	result, err := runExecuteInitFlow(opts)
 	if err != nil {
 		return err
 	}
