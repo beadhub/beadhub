@@ -389,6 +389,7 @@ async def status(
                 "human_name": None if public_reader else (presence.get("human_name") or None),
                 "program": presence.get("program") or None,
                 "role": None if public_reader else (presence.get("role") or None),
+                "role_name": None if public_reader else (presence.get("role") or None),
                 "status": presence.get("status") or "unknown",
                 "current_branch": presence.get("current_branch") or None,
                 "canonical_origin": presence.get("canonical_origin") or None,
