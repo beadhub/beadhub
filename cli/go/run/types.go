@@ -36,11 +36,14 @@ type BuildOptions struct {
 	ContinueSession bool
 	AllowedTools    string
 	Model           string
+	AddDirs         []string
+	ProviderArgs    []string
 }
 
 type Provider interface {
 	Name() string
 	BuildCommand(prompt string, opts BuildOptions) ([]string, error)
+	BuildResumeCommand(opts BuildOptions) ([]string, error)
 	ParseOutput(line string) (*Event, error)
 	SessionID(event *Event) string
 }
@@ -153,6 +156,7 @@ type LoopOptions struct {
 	WorkingDir      string
 	AllowedTools    string
 	Model           string
+	ProviderArgs    []string
 	ProviderPTY     bool
 	Services        []ServiceConfig
 }
