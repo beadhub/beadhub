@@ -1625,6 +1625,181 @@ default_account: acct-source
 	}
 }
 
+func TestAwWorkspaceAddWorktreeRequiresGitWorktree(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	if err := os.WriteFile(cfgPath, []byte(strings.TrimSpace(`
+servers:
+  local:
+    url: https://example.com
+accounts:
+  acct-source:
+    server: local
+    api_key: aw_sk_source
+    identity_id: source-1
+    identity_handle: alice
+    namespace_slug: demo
+default_account: acct-source
+`)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	run := exec.CommandContext(ctx, bin, "workspace", "add-worktree", "developer")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_URL=",
+		"AWEB_API_KEY=",
+	)
+	run.Stdin = strings.NewReader("")
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected git worktree error, got success:\n%s", string(out))
+	}
+	if !strings.Contains(string(out), "workspace add-worktree requires a git worktree") {
+		t.Fatalf("unexpected output:\n%s", string(out))
+	}
+}
+
+func TestAwWorkspaceAddWorktreeAcceptsExplicitRoleWhenNoProjectRolesExist(t *testing.T) {
+	t.Parallel()
+
+	const sourceID = "11111111-1111-1111-1111-111111111111"
+	const newID = "99999999-9999-9999-9999-999999999999"
+	const origin = "https://github.com/acme/repo.git"
+
+	var registerRole string
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/roles/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_roles_id": "pol-1",
+				"roles":            map[string]any{},
+			})
+		case "/api/v1/spawn/create-invite":
+			srvURL := "http://" + r.Host
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"invite_id":      "inv-1",
+				"token":          "aw_inv_test_worktree",
+				"token_prefix":   "aw_inv_test",
+				"alias_hint":     "bob",
+				"access_mode":    "open",
+				"max_uses":       1,
+				"expires_at":     "2099-01-01T00:00:00Z",
+				"namespace_slug": "demo",
+				"namespace":      "demo",
+				"server_url":     srvURL,
+			})
+		case "/api/v1/spawn/accept-invite":
+			srvURL := "http://" + r.Host
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_id":     "proj-1",
+				"project_slug":   "demo",
+				"namespace_slug": "demo",
+				"namespace":      "demo",
+				"identity_id":    newID,
+				"alias":          "bob",
+				"api_key":        "aw_sk_new",
+				"address":        "demo/bob",
+				"server_url":     srvURL,
+				"created":        true,
+				"did":            "did:key:z6Mktest",
+				"custody":        "self",
+				"lifetime":       "ephemeral",
+				"access_mode":    "open",
+			})
+		case "/v1/workspaces/register":
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode workspace register request: %v", err)
+			}
+			registerRole, _ = req["role"].(string)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspace_id":     newID,
+				"project_id":       "proj-1",
+				"project_slug":     "demo",
+				"repo_id":          "repo-1",
+				"canonical_origin": "github.com/acme/repo",
+				"alias":            "bob",
+				"human_name":       "Wendy",
+				"created":          true,
+			})
+		case "/v1/agents/suggest-alias-prefix":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_slug": "demo",
+				"name_prefix":  "bob",
+			})
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepoWithOriginAndCommit(t, repo, origin)
+	buildAwBinary(t, ctx, bin)
+
+	if err := os.WriteFile(cfgPath, []byte(strings.TrimSpace(`
+servers:
+  local:
+    url: `+server.URL+`
+accounts:
+  acct-source:
+    server: local
+    api_key: aw_sk_source
+    identity_id: `+sourceID+`
+    identity_handle: alice
+    namespace_slug: demo
+default_account: acct-source
+`)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := awconfig.SaveWorktreeContextTo(filepath.Join(repo, ".aw", "context"), &awconfig.WorktreeContext{
+		DefaultAccount: "acct-source",
+		ServerAccounts: map[string]string{"local": "acct-source"},
+	}); err != nil {
+		t.Fatalf("seed .aw/context: %v", err)
+	}
+
+	run := exec.CommandContext(ctx, bin, "workspace", "add-worktree", "developer", "--alias", "bob")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_URL=",
+		"AWEB_API_KEY=",
+	)
+	run.Dir = repo
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "New agent worktree created at") {
+		t.Fatalf("unexpected output:\n%s", string(out))
+	}
+	if registerRole != "developer" {
+		t.Fatalf("register role=%q", registerRole)
+	}
+}
+
 func TestAwWorkspaceAddWorktreeExplicitAliasCreatesSiblingWorktree(t *testing.T) {
 	t.Parallel()
 
