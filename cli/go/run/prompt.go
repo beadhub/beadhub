@@ -48,7 +48,7 @@ func ComposeStatusLine(identity string, transient string) string {
 }
 
 func formatRunStatus(st *state) string {
-	if st == nil || st.RunLabel == "" {
+	if st == nil || st.RunPhase != RunPhaseWorking {
 		return ""
 	}
 	var parts []string

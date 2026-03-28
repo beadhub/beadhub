@@ -38,7 +38,7 @@ type Loop struct {
 
 type state struct {
 	Run                int
-	RunLabel           string
+	RunPhase           RunPhase
 	CumulativeCostUSD  float64
 	SessionID          string
 	RanOnce            bool
@@ -211,6 +211,10 @@ func (l *Loop) Run(ctx context.Context, opts LoopOptions) error {
 		mission := resolveMission(strings.TrimSpace(opts.BasePrompt), decision.Mission)
 		fullPrompt := composeFullPrompt(mission, decision.CycleContext, opts.Services)
 		cycleLabel := displayCycleLabel(mission, decision.CycleContext)
+		displayLines := decision.DisplayLines
+		if len(displayLines) == 0 {
+			displayLines = []DisplayLine{{Kind: DisplayKindPrompt, Text: "> " + cycleLabel}}
+		}
 		if strings.TrimSpace(fullPrompt) == "" {
 			if l.Dispatch == nil && state.Run > 0 && strings.TrimSpace(opts.BasePrompt) == "" && strings.TrimSpace(opts.InitialPrompt) != "" {
 				l.println("done: initial prompt consumed; use a persistent base prompt.")
@@ -219,7 +223,7 @@ func (l *Loop) Run(ctx context.Context, opts LoopOptions) error {
 			return fmt.Errorf("prompt cannot be empty")
 		}
 		state.Run++
-		if err := l.runOnce(ctx, opts, state, fullPrompt, cycleLabel, decision.UserPrompt); err != nil {
+		if err := l.runOnce(ctx, opts, state, fullPrompt, displayLines, decision.UserPrompt); err != nil {
 			if state.StopRequested && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 				return nil
 			}
@@ -286,7 +290,7 @@ func (l *Loop) nextPrompt(ctx context.Context, opts LoopOptions, st *state) (Dis
 	return DispatchDecision{Mission: explicitMissionPrompt, WaitSeconds: opts.WaitSeconds}, nil
 }
 
-func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt string, display string, userPrompt string) error {
+func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt string, displayLines []DisplayLine, userPrompt string) error {
 	l.clearStatusLine()
 	st.LastRunError = ""
 	st.LastRunUsage = UsageStats{}
@@ -329,14 +333,14 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 		l.OnBuildCommand(append([]string(nil), argv...), buildCopy)
 	}
 
-	st.RunLabel = "active"
+	st.RunPhase = RunPhaseWorking
 	l.setBusy(true)
 	defer l.setBusy(false)
-	if isIncomingCommDisplay(display) {
-		l.printf("\n%s\n\n", display)
-	} else {
-		l.printf("\n> %s\n\n", display)
+	l.displayText(DisplayKindPlain, "\n")
+	for _, line := range displayLines {
+		l.displayLine(line.Kind, line.Text)
 	}
+	l.displayText(DisplayKindPlain, "\n")
 	l.setStatusLine(formatRunStatus(st))
 	l.renderInputPrompt(st)
 
@@ -409,7 +413,7 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 	for {
 		select {
 		case err := <-errCh:
-			st.RunLabel = ""
+			st.RunPhase = RunPhaseIdle
 			l.drainPendingControlEvents(st, true)
 			st.RanOnce = true
 			if st.RunInterrupted {
@@ -513,7 +517,7 @@ func (l *Loop) handleOutputLine(line string, presenter *presenterState, st *stat
 		l.runPresenterEnsureTextSpacing(presenter)
 		startsAtLine := presenter == nil || !presenter.lastWasText || presenter.lastTextEndedWithNewline
 		renderedText := renderAssistantText(l.Provider.Name(), event.Text, l.Out, startsAtLine)
-		l.print(renderedText)
+		l.displayText(DisplayKindAgentText, renderedText)
 		presenter.lastWasText = true
 		presenter.lastWasStructured = false
 		presenter.lastTextEndedWithNewline = strings.HasSuffix(renderedText, "\n")
@@ -521,16 +525,16 @@ func (l *Loop) handleOutputLine(line string, presenter *presenterState, st *stat
 		st.StructuredOut = true
 		l.runPresenterEnsureStructuredSpacing(presenter)
 		for _, call := range event.ToolCalls {
-			for _, line := range formatToolCallLines(call) {
-				l.printf("%s\n", line)
+			for _, line := range formatToolCallDisplay(call) {
+				l.displayLine(line.Kind, line.Text)
 			}
 		}
 		presenter.lastWasStructured = true
 	case EventToolResult:
 		st.StructuredOut = true
 		l.runPresenterEnsureStructuredSpacing(presenter)
-		for _, line := range formatToolResultLines(event.Text) {
-			l.printf("%s\n", line)
+		for _, line := range formatToolResultDisplay(event.Text) {
+			l.displayLine(line.Kind, line.Text)
 		}
 		presenter.lastWasStructured = true
 	case EventDone:
@@ -538,7 +542,7 @@ func (l *Loop) handleOutputLine(line string, presenter *presenterState, st *stat
 			st.LastRunError = strings.TrimSpace(event.Text)
 			st.StructuredOut = true
 			l.runPresenterEnsureStructuredSpacing(presenter)
-			l.printf("%s\n", formatDone(event))
+			l.displayLine(DisplayKindDone, formatDone(event))
 			presenter.lastWasStructured = true
 		}
 	case EventSystem:
@@ -552,10 +556,21 @@ func (l *Loop) handleRawProviderChunk(label string, chunk string, presenter *pre
 		return
 	}
 	l.runPresenterEnsureRawSpacing(presenter)
+	kind := DisplayKindAgentText
+	switch label {
+	case "provider stderr":
+		kind = DisplayKindProviderStderr
+	case "provider stdout":
+		kind = DisplayKindProviderStdout
+	case "":
+		kind = DisplayKindAgentText
+	default:
+		kind = DisplayKindPlain
+	}
 	for len(chunk) > 0 {
 		if presenter == nil || !presenter.rawLineOpen || presenter.rawLineLabel != label {
 			if label != "" {
-				l.printf("%s: ", label)
+				l.displayText(kind, label+": ")
 			}
 			if presenter != nil {
 				presenter.rawLineOpen = true
@@ -564,7 +579,7 @@ func (l *Loop) handleRawProviderChunk(label string, chunk string, presenter *pre
 		}
 		newline := strings.IndexByte(chunk, '\n')
 		if newline < 0 {
-			l.print(chunk)
+			l.displayText(kind, chunk)
 			if presenter != nil {
 				presenter.lastWasText = true
 				presenter.lastWasStructured = false
@@ -572,7 +587,7 @@ func (l *Loop) handleRawProviderChunk(label string, chunk string, presenter *pre
 			}
 			return
 		}
-		l.print(chunk[:newline+1])
+		l.displayText(kind, chunk[:newline+1])
 		if presenter != nil {
 			presenter.rawLineOpen = false
 			presenter.rawLineLabel = ""
@@ -607,10 +622,8 @@ func (l *Loop) runPresenterEnsureStructuredSpacing(presenter *presenterState) {
 		return
 	}
 	if presenter.lastWasText {
-		if presenter.lastTextEndedWithNewline {
+		if !presenter.lastTextEndedWithNewline {
 			l.print("\n")
-		} else {
-			l.print("\n\n")
 		}
 		presenter.lastWasText = false
 		presenter.lastTextEndedWithNewline = false
@@ -971,7 +984,7 @@ func (l *Loop) applyControlEvent(event ControlEvent, st *state, activeRun bool, 
 		}
 		if activeRun {
 			l.printf("\nqueued: %s\n", newText)
-			if st.RunLabel != "" {
+			if st.RunPhase == RunPhaseWorking {
 				l.setStatusLine(formatRunStatus(st))
 			}
 		}
@@ -1084,6 +1097,14 @@ func (l *Loop) promptLabel() string {
 
 func (l *Loop) renderIdleLine(label string, remaining int, st *state) {
 	line := fmt.Sprintf("%s in %ds", label, remaining)
+	if st != nil {
+		switch label {
+		case "waiting for prompt":
+			st.RunPhase = RunPhaseWaitingForPrompt
+		default:
+			st.RunPhase = RunPhaseWaitingForWork
+		}
+	}
 	if screen := l.screen(); screen != nil {
 		screen.SetStatusLine(ComposeStatusLine(l.StatusIdentity, line))
 		l.renderInputPrompt(st)
@@ -1116,6 +1137,22 @@ func (l *Loop) print(text string) {
 	fmt.Fprint(l.Out, text)
 }
 
+func (l *Loop) displayText(kind DisplayKind, text string) {
+	if screen := l.screen(); screen != nil {
+		if appender, ok := screen.(interface {
+			AppendDisplayText(DisplayKind, string)
+		}); ok {
+			appender.AppendDisplayText(kind, text)
+			return
+		}
+		screen.AppendText(text)
+		return
+	}
+	l.writeMu.Lock()
+	defer l.writeMu.Unlock()
+	fmt.Fprint(l.Out, text)
+}
+
 func (l *Loop) printf(format string, args ...any) {
 	if screen := l.screen(); screen != nil {
 		screen.AppendText(fmt.Sprintf(format, args...))
@@ -1124,6 +1161,22 @@ func (l *Loop) printf(format string, args ...any) {
 	l.writeMu.Lock()
 	defer l.writeMu.Unlock()
 	fmt.Fprintf(l.Out, format, args...)
+}
+
+func (l *Loop) displayLine(kind DisplayKind, text string) {
+	if screen := l.screen(); screen != nil {
+		if appender, ok := screen.(interface {
+			AppendDisplayLine(DisplayKind, string)
+		}); ok {
+			appender.AppendDisplayLine(kind, text)
+			return
+		}
+		screen.AppendLine(text)
+		return
+	}
+	l.writeMu.Lock()
+	defer l.writeMu.Unlock()
+	fmt.Fprintln(l.Out, text)
 }
 
 func (l *Loop) println(text string) {
@@ -1245,6 +1298,7 @@ func (l *Loop) refreshStatusLine(st *state) {
 		return
 	}
 	if st.Paused {
+		st.RunPhase = RunPhasePaused
 		l.setStatusLine(pausedStatusText)
 		return
 	}
@@ -1254,7 +1308,10 @@ func (l *Loop) refreshStatusLine(st *state) {
 	}
 	label := "waiting for work"
 	if st.Run == 0 && !st.RanOnce {
+		st.RunPhase = RunPhaseWaitingForPrompt
 		label = "waiting for prompt"
+	} else {
+		st.RunPhase = RunPhaseWaitingForWork
 	}
 	l.setStatusLine(formatWaitStatus(label, st))
 }
