@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRenderCodexAssistantTextFormatsMarkdownAndAddsMargin(t *testing.T) {
+func TestRenderCodexAssistantTextFormatsMarkdownAndAddsBulletLane(t *testing.T) {
 	rendered := renderCodexAssistantText("## Title\n\n- first item\n- second item\n\nUse `code` here.\n", 60)
 	plain := stripANSIEscapeCodes(rendered)
 
@@ -18,34 +18,38 @@ func TestRenderCodexAssistantTextFormatsMarkdownAndAddsMargin(t *testing.T) {
 	if !strings.Contains(plain, "code") {
 		t.Fatalf("expected inline code content to remain, got %q", plain)
 	}
-	for _, line := range strings.Split(strings.TrimRight(plain, "\n"), "\n") {
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	if !strings.HasPrefix(lines[0], "• ") {
+		t.Fatalf("expected first rendered line to start with bullet lane, got %#v", lines)
+	}
+	for _, line := range lines[1:] {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		if !strings.HasPrefix(line, "  ") {
-			t.Fatalf("expected rendered line %q to keep a left margin", line)
+			t.Fatalf("expected rendered line %q to keep a hanging indent", line)
 		}
 	}
 }
 
-func TestRenderCodexAssistantTextFallsBackToIndentedPlainText(t *testing.T) {
+func TestRenderCodexAssistantTextFallsBackToAssistantDisplayText(t *testing.T) {
 	rendered := renderCodexAssistantText("", 60)
 	if rendered != "" {
 		t.Fatalf("expected empty output for empty input, got %q", rendered)
 	}
 
-	plain := stripANSIEscapeCodes(indentDisplayText("plain line\nsecond line", 2))
+	plain := stripANSIEscapeCodes(prefixAssistantDisplayText("plain line\nsecond line", true))
 	lines := strings.Split(plain, "\n")
-	if lines[0] != "  plain line" || lines[1] != "  second line" {
-		t.Fatalf("expected plain text indentation, got %#v", lines)
+	if lines[0] != "• plain line" || lines[1] != "  second line" {
+		t.Fatalf("expected assistant bullet formatting, got %#v", lines)
 	}
 }
 
-func TestIndentStreamingTextOnlyPrefixesLineStarts(t *testing.T) {
-	first := indentStreamingText("Hello ", 2, true)
-	second := indentStreamingText("world\nnext line", 2, false)
+func TestPrefixAssistantDisplayTextOnlyPrefixesLineStarts(t *testing.T) {
+	first := prefixAssistantDisplayText("Hello ", true)
+	second := prefixAssistantDisplayText("world\nnext line", false)
 
-	if first != "  Hello " {
+	if first != "• Hello " {
 		t.Fatalf("unexpected first chunk %q", first)
 	}
 	if second != "world\n  next line" {

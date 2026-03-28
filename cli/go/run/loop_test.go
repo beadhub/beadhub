@@ -369,7 +369,7 @@ func TestLoopDoesNotSuppressBdhSpecificEchoText(t *testing.T) {
 	}
 }
 
-func TestLoopRendersCodexMarkdownWithMargin(t *testing.T) {
+func TestLoopRendersCodexMarkdownWithBulletLane(t *testing.T) {
 	var out bytes.Buffer
 	loop := NewLoop(CodexProvider{}, &out)
 	st := &state{}
@@ -380,15 +380,15 @@ func TestLoopRendersCodexMarkdownWithMargin(t *testing.T) {
 	if strings.Contains(got, "## Title") {
 		t.Fatalf("expected markdown heading to be rendered, got %q", got)
 	}
-	if !strings.Contains(got, "  Title") {
-		t.Fatalf("expected rendered text to keep a left margin, got %q", got)
+	if !strings.Contains(got, "• Title") {
+		t.Fatalf("expected rendered text to start in the assistant bullet lane, got %q", got)
 	}
 	if !strings.Contains(got, "first item") {
 		t.Fatalf("expected list item content to remain, got %q", got)
 	}
 }
 
-func TestLoopAddsClaudeMarginAcrossStreamingChunks(t *testing.T) {
+func TestLoopAddsClaudeBulletLaneAcrossStreamingChunks(t *testing.T) {
 	var out bytes.Buffer
 	loop := NewLoop(ClaudeProvider{}, &out)
 	st := &state{}
@@ -398,11 +398,11 @@ func TestLoopAddsClaudeMarginAcrossStreamingChunks(t *testing.T) {
 	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"world\n- item"}}}`, presenter, st, nil, nil)
 
 	got := out.String()
-	if !strings.Contains(got, "  Hello world") {
-		t.Fatalf("expected Claude text to start with a left margin, got %q", got)
+	if !strings.Contains(got, "• Hello world") {
+		t.Fatalf("expected Claude text to start with the assistant bullet lane, got %q", got)
 	}
 	if !strings.Contains(got, "\n  - item") {
-		t.Fatalf("expected Claude continuation line to keep the left margin, got %q", got)
+		t.Fatalf("expected Claude continuation line to keep the hanging indent, got %q", got)
 	}
 	if strings.Contains(got, "Hello   world") {
 		t.Fatalf("expected no extra indentation injected mid-line, got %q", got)

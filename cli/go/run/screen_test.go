@@ -91,6 +91,15 @@ func TestStyleScreenLineKeepsToolArgumentsNeutralOnFirstLine(t *testing.T) {
 	}
 }
 
+func TestStyleScreenLineStylesAgentBulletLane(t *testing.T) {
+	styles := newScreenStyles()
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindAgentText, text: `• first answer line`}, styles)
+	want := styles.agentBullet.Render(`•`) + styles.agentText.Render(` first answer line`)
+	if got != want {
+		t.Fatalf("unexpected styled agent line %q", got)
+	}
+}
+
 func TestStyleScreenLineDeemphasizesToolArgsAfterOpeningParen(t *testing.T) {
 	styles := newScreenStyles()
 	got := styleScreenLine(screenOutputLine{kind: DisplayKindTool, text: `· browser_click(ref="abc", element="Submit")`}, styles)
@@ -240,6 +249,18 @@ func TestWrapScreenLineUsesHangingIndentForCommLines(t *testing.T) {
 	for _, line := range lines[1:] {
 		if !strings.HasPrefix(line, indent) {
 			t.Fatalf("expected hanging indent under message body, got %#v", lines)
+		}
+	}
+}
+
+func TestWrapScreenLineUsesHangingIndentForAgentText(t *testing.T) {
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindAgentText, text: `• this is a long assistant reply that should wrap under the bullet lane cleanly`}, 28)
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped lines, got %#v", lines)
+	}
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(line, "  ") {
+			t.Fatalf("expected assistant continuation indent, got %#v", lines)
 		}
 	}
 }

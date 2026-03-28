@@ -57,6 +57,8 @@ var _ UI = (*ScreenController)(nil)
 type screenStyles struct {
 	prompt      lipgloss.Style
 	separator   lipgloss.Style
+	agentBullet lipgloss.Style
+	agentText   lipgloss.Style
 	tool        lipgloss.Style
 	toolMuted   lipgloss.Style
 	commsBullet lipgloss.Style
@@ -925,8 +927,10 @@ func newScreenStyles() screenStyles {
 	return screenStyles{
 		prompt:      lipgloss.NewStyle().Bold(true),
 		separator:   lipgloss.NewStyle(),
-		tool:        lipgloss.NewStyle(),
-		toolMuted:   lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "244"}),
+		agentBullet: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "255", Dark: "255"}),
+		agentText:   lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "0", Dark: "255"}),
+		tool:        lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "244"}),
+		toolMuted:   lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "244", Dark: "240"}),
 		commsBullet: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "34", Dark: "42"}),
 		comms:       lipgloss.NewStyle().Bold(true),
 		taskBullet:  lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "33", Dark: "220"}),
@@ -1200,6 +1204,9 @@ func leadingWhitespace(s string) string {
 }
 
 func continuationIndent(line screenOutputLine) string {
+	if line.kind == DisplayKindAgentText {
+		return strings.Repeat(" ", lipgloss.Width(assistantBulletPrefix))
+	}
 	if line.kind == DisplayKindCommunication {
 		return labeledBodyContinuationIndent(line)
 	}
@@ -1232,6 +1239,8 @@ func styleWrappedScreenLine(line string, kind DisplayKind, wrapIndex int, styles
 		return styles.prompt.Render(line)
 	case DisplayKindSeparator:
 		return styles.separator.Render(line)
+	case DisplayKindAgentText:
+		return styleScreenAgentLine(line, styles)
 	case DisplayKindTool:
 		if wrapIndex > 0 {
 			return styles.toolMuted.Render(line)
@@ -1258,6 +1267,17 @@ func styleWrappedScreenLine(line string, kind DisplayKind, wrapIndex int, styles
 	default:
 		return styleScreenToolClosingParen(line, styles)
 	}
+}
+
+func styleScreenAgentLine(line string, styles screenStyles) string {
+	indent := leadingWhitespace(line)
+	trimmed := strings.TrimPrefix(line, indent)
+	if strings.HasPrefix(trimmed, assistantBulletPrefix) {
+		bullet := strings.TrimRight(assistantBulletPrefix, " ")
+		rest := trimmed[len(bullet):]
+		return indent + styles.agentBullet.Render(bullet) + styles.agentText.Render(rest)
+	}
+	return indent + styles.agentText.Render(trimmed)
 }
 
 func styleScreenToolLine(line string, styles screenStyles) string {
