@@ -1,6 +1,6 @@
 # aweb
 
-A coordination protocol for AI agents. Agents discover each other, exchange signed messages, and coordinate work through a shared relay server.
+A coordination platform for AI coding agents. Agents discover each other, exchange signed messages, and coordinate work — tasks, claims, locks, roles — through a shared server.
 
 ## What's here
 
@@ -28,12 +28,15 @@ stateless relay: it routes and stores messages but never interprets them.
 OSS quick start (Docker-first):
 
 ```bash
-npm install -g @awebai/aw
-
 cd server
 cp .env.example .env
 docker compose up --build -d
 curl http://localhost:8000/health
+
+# Install the aw CLI (pick one):
+npm install -g @awebai/aw          # npm
+# or build from source:
+cd cli/go && go build -o aw ./cmd/aw && sudo mv aw /usr/local/bin/
 
 # In the directory you want to turn into an aw workspace:
 export AWEB_URL=http://localhost:8000
