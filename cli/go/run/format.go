@@ -33,76 +33,87 @@ func formatDone(event *Event) string {
 	return strings.Join(parts, "  ")
 }
 
-func formatToolCallLines(call ToolCall) []string {
+func formatToolCallDisplay(call ToolCall) []DisplayLine {
 	if line, ok := formatCoordinationToolCall(call); ok {
-		return []string{line}
+		return []DisplayLine{line}
 	}
 	args := formatToolSummaryArgs(call.Input)
-	lines := formatToolSummaryLines(call.Name, args)
-	if description := formatToolDescription(call.Input); description != "" {
-		lines = append(lines, "  "+description)
-	}
-	return lines
+	return formatToolSummaryDisplay(call.Name, args, formatToolDescription(call.Input))
 }
 
-func formatToolResultLines(text string) []string {
+func formatToolResultDisplay(text string) []DisplayLine {
 	lines := trimOuterBlankLines(strings.Split(strings.ReplaceAll(text, "\r", ""), "\n"))
 	if len(lines) == 0 {
 		return nil
 	}
-
-	const maxLines = 6
-	formatted := make([]string, 0, min(len(lines), maxLines)+1)
-	for i, line := range lines {
-		if i >= maxLines {
-			formatted = append(formatted, fmt.Sprintf("    ... +%d lines", len(lines)-maxLines))
-			break
-		}
-		formatted = append(formatted, "    "+truncateLine(line, 150))
+	summary := truncateLine(strings.TrimSpace(lines[0]), 140)
+	if summary == "" {
+		summary = "(no output)"
 	}
-	return formatted
+	textLine := "  = " + summary
+	if len(lines) > 1 {
+		textLine += fmt.Sprintf("  · +%d more", len(lines)-1)
+	}
+	return []DisplayLine{{Kind: DisplayKindResult, Text: textLine}}
 }
 
-func formatCoordinationToolCall(call ToolCall) (string, bool) {
+func formatCoordinationToolCall(call ToolCall) (DisplayLine, bool) {
 	if !strings.EqualFold(strings.TrimSpace(call.Name), "Bash") {
-		return "", false
+		return DisplayLine{}, false
 	}
 	command, _ := call.Input["command"].(string)
 	if command == "" {
-		return "", false
+		return DisplayLine{}, false
 	}
 	return formatAWCoordinationCommand(command)
 }
 
-func formatAWCoordinationCommand(command string) (string, bool) {
+func formatAWCoordinationCommand(command string) (DisplayLine, bool) {
 	fields := strings.Fields(strings.TrimSpace(command))
 	if len(fields) < 3 || fields[0] != "aw" {
-		return "", false
+		return DisplayLine{}, false
 	}
 
 	switch fields[1] {
+	case "task":
+		if len(fields) < 3 {
+			return DisplayLine{}, false
+		}
+		action := strings.TrimSpace(fields[2])
+		switch action {
+		case "create":
+			return DisplayLine{Kind: DisplayKindTaskActivity, Text: "• task create"}, true
+		case "update", "close":
+			ref := firstNonFlag(fields[3:])
+			if ref == "" {
+				return DisplayLine{}, false
+			}
+			return DisplayLine{Kind: DisplayKindTaskActivity, Text: fmt.Sprintf("• task %s %s", action, ref)}, true
+		default:
+			return DisplayLine{}, false
+		}
 	case "mail":
 		if fields[2] != "send" {
-			return "", false
+			return DisplayLine{}, false
 		}
 		alias := findFlagValue(fields[3:], "--to")
 		if alias == "" {
-			return "", false
+			return DisplayLine{}, false
 		}
-		return FormatCommLabel("to", alias, "mail"), true
+		return DisplayLine{Kind: DisplayKindCommunication, Text: FormatCommLabel("to", alias, "mail")}, true
 	case "chat":
 		switch fields[2] {
 		case "send-and-wait", "send-and-leave":
 			alias := firstNonFlag(fields[3:])
 			if alias == "" {
-				return "", false
+				return DisplayLine{}, false
 			}
-			return FormatCommLabel("to", alias, "chat"), true
+			return DisplayLine{Kind: DisplayKindCommunication, Text: FormatCommLabel("to", alias, "chat")}, true
 		default:
-			return "", false
+			return DisplayLine{}, false
 		}
 	default:
-		return "", false
+		return DisplayLine{}, false
 	}
 }
 
@@ -121,6 +132,20 @@ func FormatCommLabel(direction string, alias string, channel string) string {
 		label += " (" + channel + ")"
 	}
 	return label
+}
+
+func SplitDisplayText(kind DisplayKind, text string) []DisplayLine {
+	text = strings.ReplaceAll(text, "\r", "")
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return nil
+	}
+	parts := strings.Split(text, "\n")
+	lines := make([]DisplayLine, 0, len(parts))
+	for _, part := range parts {
+		lines = append(lines, DisplayLine{Kind: kind, Text: part})
+	}
+	return lines
 }
 
 func isIncomingCommDisplay(display string) bool {
@@ -145,26 +170,24 @@ func firstNonFlag(fields []string) string {
 	return ""
 }
 
-func formatToolSummaryLines(name string, args []string) []string {
-	prefix := ">_ "
+func formatToolSummaryDisplay(name string, args []string, description string) []DisplayLine {
+	prefix := "· "
 	name = strings.TrimSpace(name)
 	if name != "" && !strings.EqualFold(name, "Bash") {
 		prefix += name + " "
 	}
-	if len(args) == 0 {
-		return []string{strings.TrimRight(prefix, " ")}
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, args...)
+	if description != "" {
+		parts = append(parts, "— "+description)
 	}
-
-	indent := strings.Repeat(" ", len(prefix))
-	lines := make([]string, 0, len(args))
-	for i, arg := range args {
-		if i == 0 {
-			lines = append(lines, prefix+arg)
-			continue
-		}
-		lines = append(lines, indent+arg)
+	if len(parts) == 0 {
+		return []DisplayLine{{Kind: DisplayKindTool, Text: strings.TrimRight(prefix, " ")}}
 	}
-	return lines
+	return []DisplayLine{{
+		Kind: DisplayKindTool,
+		Text: truncateText(prefix+strings.Join(parts, " "), 220),
+	}}
 }
 
 func formatToolDescription(data map[string]any) string {

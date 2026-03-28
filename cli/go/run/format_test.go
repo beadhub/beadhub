@@ -1,9 +1,12 @@
 package run
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFormatToolCallLinesUsesMinimalShellStyle(t *testing.T) {
-	lines := formatToolCallLines(ToolCall{
+	lines := formatToolCallDisplay(ToolCall{
 		Name: "Bash",
 		Input: map[string]any{
 			"command": "go test ./... 2>&1",
@@ -12,13 +15,13 @@ func TestFormatToolCallLinesUsesMinimalShellStyle(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one line, got %#v", lines)
 	}
-	if lines[0] != ">_ go test ./... 2>&1" {
-		t.Fatalf("unexpected tool line %q", lines[0])
+	if lines[0].Kind != DisplayKindTool || lines[0].Text != "· go test ./... 2>&1" {
+		t.Fatalf("unexpected tool line %#v", lines[0])
 	}
 }
 
 func TestFormatToolCallLinesKeepsToolNameForNonShellTools(t *testing.T) {
-	lines := formatToolCallLines(ToolCall{
+	lines := formatToolCallDisplay(ToolCall{
 		Name: "View",
 		Input: map[string]any{
 			"path": "/tmp/image.png",
@@ -27,13 +30,33 @@ func TestFormatToolCallLinesKeepsToolNameForNonShellTools(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one line, got %#v", lines)
 	}
-	if lines[0] != ">_ View /tmp/image.png" {
-		t.Fatalf("unexpected tool line %q", lines[0])
+	if lines[0].Kind != DisplayKindTool || lines[0].Text != "· View /tmp/image.png" {
+		t.Fatalf("unexpected tool line %#v", lines[0])
+	}
+}
+
+func TestFormatToolCallLinesStayOnOneLineForMultipleArgs(t *testing.T) {
+	lines := formatToolCallDisplay(ToolCall{
+		Name: "browser_click",
+		Input: map[string]any{
+			"ref":         "abc",
+			"element":     "Submit",
+			"description": "click the primary submit button",
+		},
+	})
+	if len(lines) != 1 {
+		t.Fatalf("expected one line, got %#v", lines)
+	}
+	if lines[0].Kind != DisplayKindTool {
+		t.Fatalf("expected tool line, got %#v", lines[0])
+	}
+	if lines[0].Text == "" || !strings.HasPrefix(lines[0].Text, "· ") {
+		t.Fatalf("expected compact tool line, got %#v", lines[0])
 	}
 }
 
 func TestFormatToolCallLinesCompactsMailSendCommands(t *testing.T) {
-	lines := formatToolCallLines(ToolCall{
+	lines := formatToolCallDisplay(ToolCall{
 		Name: "Bash",
 		Input: map[string]any{
 			"command": `aw mail send --to dave --subject "Review" --body "please take a look"`,
@@ -42,13 +65,13 @@ func TestFormatToolCallLinesCompactsMailSendCommands(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one line, got %#v", lines)
 	}
-	if lines[0] != "• to dave (mail)" {
-		t.Fatalf("unexpected mail tool line %q", lines[0])
+	if lines[0].Kind != DisplayKindCommunication || lines[0].Text != "• to dave (mail)" {
+		t.Fatalf("unexpected mail tool line %#v", lines[0])
 	}
 }
 
 func TestFormatToolCallLinesCompactsChatSendCommands(t *testing.T) {
-	lines := formatToolCallLines(ToolCall{
+	lines := formatToolCallDisplay(ToolCall{
 		Name: "Bash",
 		Input: map[string]any{
 			"command": `aw chat send-and-wait henry "can you review this?" --start-conversation`,
@@ -57,27 +80,42 @@ func TestFormatToolCallLinesCompactsChatSendCommands(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one line, got %#v", lines)
 	}
-	if lines[0] != "• to henry (chat)" {
-		t.Fatalf("unexpected chat tool line %q", lines[0])
+	if lines[0].Kind != DisplayKindCommunication || lines[0].Text != "• to henry (chat)" {
+		t.Fatalf("unexpected chat tool line %#v", lines[0])
 	}
 }
 
 func TestFormatToolResultLinesPreservesLineBreaks(t *testing.T) {
-	lines := formatToolResultLines("1\talpha\n2\tbeta\n3\tgamma")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 result lines, got %#v", lines)
+	lines := formatToolResultDisplay("1\talpha\n2\tbeta\n3\tgamma")
+	if len(lines) != 1 {
+		t.Fatalf("expected single summary line, got %#v", lines)
 	}
-	if lines[0] != "    1\talpha" || lines[1] != "    2\tbeta" || lines[2] != "    3\tgamma" {
+	if lines[0].Text != "  = 1\talpha  · +2 more" {
 		t.Fatalf("unexpected result lines %#v", lines)
 	}
 }
 
 func TestFormatToolResultLinesSummarizesExtraLines(t *testing.T) {
-	lines := formatToolResultLines("1\n2\n3\n4\n5\n6\n7\n8")
-	if len(lines) != 7 {
-		t.Fatalf("expected 7 rendered lines, got %#v", lines)
+	lines := formatToolResultDisplay("1\n2\n3\n4\n5\n6\n7\n8")
+	if len(lines) != 1 {
+		t.Fatalf("expected one rendered line, got %#v", lines)
 	}
-	if lines[6] != "    ... +2 lines" {
+	if lines[0].Text != "  = 1  · +7 more" {
 		t.Fatalf("unexpected overflow summary %#v", lines)
+	}
+}
+
+func TestFormatToolCallLinesCompactsTaskUpdateCommands(t *testing.T) {
+	lines := formatToolCallDisplay(ToolCall{
+		Name: "Bash",
+		Input: map[string]any{
+			"command": `aw task update aweb-aaat.1 --status in_progress`,
+		},
+	})
+	if len(lines) != 1 {
+		t.Fatalf("expected one line, got %#v", lines)
+	}
+	if lines[0].Kind != DisplayKindTaskActivity || lines[0].Text != "• task update aweb-aaat.1" {
+		t.Fatalf("unexpected task tool line %#v", lines[0])
 	}
 }

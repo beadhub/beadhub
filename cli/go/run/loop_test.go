@@ -483,7 +483,7 @@ func TestLoopBasePromptDoesNotAutoRerunWithoutWake(t *testing.T) {
 }
 
 func TestFormatRunStatusOmitsRunLabel(t *testing.T) {
-	st := &state{RunLabel: "run 3"}
+	st := &state{RunPhase: RunPhaseWaitingForWork}
 	got := formatRunStatus(st)
 	if got != "" {
 		t.Fatalf("expected empty status with only run label, got %q", got)
@@ -510,7 +510,7 @@ func TestFormatWaitStatusShowsClaimedTaskRef(t *testing.T) {
 
 func TestFormatRunStatusShowsCostAndAutofeed(t *testing.T) {
 	st := &state{
-		RunLabel:          "run 1",
+		RunPhase:          RunPhaseWorking,
 		CumulativeCostUSD: 0.05,
 		Autofeed:          true,
 		ConnState:         ConnStreaming,
@@ -524,7 +524,7 @@ func TestFormatRunStatusShowsCostAndAutofeed(t *testing.T) {
 
 func TestFormatRunStatusShowsClaimedTaskRef(t *testing.T) {
 	st := &state{
-		RunLabel:       "run 1",
+		RunPhase:       RunPhaseWorking,
 		ClaimedTaskRef: "aweb-aaag",
 		ConnState:      ConnStreaming,
 	}
@@ -537,7 +537,7 @@ func TestFormatRunStatusShowsClaimedTaskRef(t *testing.T) {
 
 func TestFormatRunStatusShowsReconnecting(t *testing.T) {
 	st := &state{
-		RunLabel:          "run 1",
+		RunPhase:          RunPhaseWorking,
 		CumulativeCostUSD: 0.05,
 		ConnState:         ConnReconnecting,
 	}
@@ -550,7 +550,7 @@ func TestFormatRunStatusShowsReconnecting(t *testing.T) {
 
 func TestFormatRunStatusShowsQueuedWhenPromptPending(t *testing.T) {
 	st := &state{
-		RunLabel:   "run 1",
+		RunPhase:   RunPhaseWorking,
 		NextPrompt: "fix the bug",
 	}
 	got := formatRunStatus(st)
@@ -560,7 +560,7 @@ func TestFormatRunStatusShowsQueuedWhenPromptPending(t *testing.T) {
 }
 
 func TestFormatRunStatusOmitsQueuedWhenNoPromptPending(t *testing.T) {
-	st := &state{RunLabel: "run 1"}
+	st := &state{RunPhase: RunPhaseWorking}
 	got := formatRunStatus(st)
 	if strings.Contains(got, "queued") {
 		t.Fatalf("expected no 'queued' indicator without pending prompt, got %q", got)
@@ -578,7 +578,7 @@ func TestHandleOutputLineAccumulatesCost(t *testing.T) {
 	}
 	var out bytes.Buffer
 	loop := NewLoop(provider, &out)
-	st := &state{RunLabel: "run 1"}
+	st := &state{RunPhase: RunPhaseWorking}
 	presenter := &presenterState{}
 	sid := ""
 
@@ -1390,7 +1390,7 @@ func TestRemoteInterruptDuringIdleDoesNotLeakIntoNextRun(t *testing.T) {
 		t.Fatal("expected RunInterrupted=false after idle interrupt handling")
 	}
 
-	if err := loop.runOnce(context.Background(), LoopOptions{}, st, "review", "review", "review"); err != nil {
+	if err := loop.runOnce(context.Background(), LoopOptions{}, st, "review", []DisplayLine{{Kind: DisplayKindPrompt, Text: "> review"}}, "review"); err != nil {
 		t.Fatalf("runOnce returned error: %v", err)
 	}
 
@@ -1508,7 +1508,7 @@ func TestRunOnceSurfacesProviderStderr(t *testing.T) {
 		return nil
 	}
 
-	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", "review", "review"); err != nil {
+	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", []DisplayLine{{Kind: DisplayKindPrompt, Text: "> review"}}, "review"); err != nil {
 		t.Fatalf("runOnce returned error: %v", err)
 	}
 
@@ -1531,7 +1531,7 @@ func TestRunOnceSurfacesProviderStdoutPartial(t *testing.T) {
 		return nil
 	}
 
-	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", "review", "review"); err != nil {
+	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", []DisplayLine{{Kind: DisplayKindPrompt, Text: "> review"}}, "review"); err != nil {
 		t.Fatalf("runOnce returned error: %v", err)
 	}
 
@@ -1550,7 +1550,7 @@ func TestRunOnceRendersIncomingCycleWithoutPromptMarker(t *testing.T) {
 		return nil
 	}
 
-	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", "• from architect (chat): can you review the retry path?", ""); err != nil {
+	if err := loop.runOnce(context.Background(), LoopOptions{}, &state{}, "review", []DisplayLine{{Kind: DisplayKindCommunication, Text: "• from architect (chat): can you review the retry path?"}}, ""); err != nil {
 		t.Fatalf("runOnce returned error: %v", err)
 	}
 
@@ -1601,7 +1601,7 @@ func TestRunOnceAddsWorktreeGitDirToBuildOptions(t *testing.T) {
 		return nil
 	}
 
-	if err := loop.runOnce(context.Background(), LoopOptions{WorkingDir: worktree}, &state{}, "review", "review", "review"); err != nil {
+	if err := loop.runOnce(context.Background(), LoopOptions{WorkingDir: worktree}, &state{}, "review", []DisplayLine{{Kind: DisplayKindPrompt, Text: "> review"}}, "review"); err != nil {
 		t.Fatalf("runOnce returned error: %v", err)
 	}
 	if len(provider.builds) != 1 {

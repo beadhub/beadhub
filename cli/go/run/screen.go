@@ -23,8 +23,8 @@ type ScreenController struct {
 	promptLabel string
 
 	mu            sync.Mutex
-	lines         []string
-	current       string
+	lines         []screenOutputLine
+	current       screenOutputLine
 	statusLine    string
 	inputLine     string
 	inputCursor   int
@@ -61,6 +61,8 @@ type screenStyles struct {
 	toolMuted   lipgloss.Style
 	commsBullet lipgloss.Style
 	comms       lipgloss.Style
+	taskBullet  lipgloss.Style
+	task        lipgloss.Style
 	streamLabel lipgloss.Style
 	streamError lipgloss.Style
 	result      lipgloss.Style
@@ -68,6 +70,11 @@ type screenStyles struct {
 	info        lipgloss.Style
 	status      lipgloss.Style
 	hint        lipgloss.Style
+}
+
+type screenOutputLine struct {
+	kind DisplayKind
+	text string
 }
 
 const screenFooterBaseLines = 3
@@ -233,6 +240,10 @@ func (s *ScreenController) HasPendingInput() bool {
 }
 
 func (s *ScreenController) AppendText(text string) {
+	s.AppendDisplayText(DisplayKindPlain, text)
+}
+
+func (s *ScreenController) AppendDisplayText(kind DisplayKind, text string) {
 	if s == nil {
 		return
 	}
@@ -240,19 +251,7 @@ func (s *ScreenController) AppendText(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	text = strings.ReplaceAll(text, "\r", "")
-	parts := strings.Split(text, "\n")
-	if len(parts) == 1 {
-		s.current += parts[0]
-		s.renderFooterLocked()
-		return
-	}
-
-	completed := make([]string, 0, len(parts)-1)
-	completed = append(completed, s.current+parts[0])
-	completed = append(completed, parts[1:len(parts)-1]...)
-	s.current = parts[len(parts)-1]
-	s.lines = append(s.lines, completed...)
+	completed := appendScreenText(&s.lines, &s.current, kind, text)
 
 	if s.active {
 		s.clearFooterLocked()
@@ -269,7 +268,11 @@ func (s *ScreenController) AppendText(text string) {
 }
 
 func (s *ScreenController) AppendLine(line string) {
-	s.AppendText(line + "\n")
+	s.AppendDisplayLine(DisplayKindPlain, line)
+}
+
+func (s *ScreenController) AppendDisplayLine(kind DisplayKind, line string) {
+	s.AppendDisplayText(kind, line+"\n")
 }
 
 func (s *ScreenController) SetInputLine(line string) {
@@ -690,7 +693,7 @@ func (s *ScreenController) renderFooterLayoutLocked(width int) promptLayout {
 }
 
 func (s *ScreenController) renderCurrentLinesLocked(width int) []string {
-	if s.current == "" {
+	if s.current.text == "" {
 		return nil
 	}
 	return appendWrappedStyledScreenLine(nil, s.current, width, s.styles)
@@ -701,9 +704,9 @@ func (s *ScreenController) renderStatusLineLocked(width int) string {
 	if s.busy {
 		frame := screenSpinnerFrames[s.spinnerFrame%len(screenSpinnerFrames)]
 		if text == "" {
-			text = frame + " working"
+			text = "WORKING " + frame
 		} else {
-			text = frame + " " + text
+			text = "WORKING " + frame + " · " + text
 		}
 	}
 	if text != "" {
@@ -712,7 +715,7 @@ func (s *ScreenController) renderStatusLineLocked(width int) string {
 	return s.styles.status.Width(max(1, width)).Render(text)
 }
 
-func (s *ScreenController) printOutputLineLocked(line string) {
+func (s *ScreenController) printOutputLineLocked(line screenOutputLine) {
 	lines := appendWrappedStyledScreenLine(nil, line, s.terminalWidthLocked(), s.styles)
 	lines = append(lines, "")
 	writeScreenLines(s.outputFile, lines)
@@ -720,12 +723,12 @@ func (s *ScreenController) printOutputLineLocked(line string) {
 
 func (s *ScreenController) teardownFooterLocked() {
 	current := s.current
-	s.current = ""
+	s.current = screenOutputLine{}
 	s.clearFooterLocked()
-	if current != "" {
+	if current.text != "" {
 		s.printOutputLineLocked(current)
 	}
-	if current != "" || len(s.lines) > 0 {
+	if current.text != "" || len(s.lines) > 0 {
 		writeScreenLines(s.outputFile, []string{""})
 	}
 }
@@ -926,6 +929,8 @@ func newScreenStyles() screenStyles {
 		toolMuted:   lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "244"}),
 		commsBullet: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "34", Dark: "42"}),
 		comms:       lipgloss.NewStyle().Bold(true),
+		taskBullet:  lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "33", Dark: "220"}),
+		task:        lipgloss.NewStyle().Bold(true),
 		streamLabel: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "244"}),
 		streamError: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "160", Dark: "203"}),
 		result:      lipgloss.NewStyle(),
@@ -1059,40 +1064,54 @@ func (l promptLayout) cursorIndexForLineColumn(targetLine int, targetColumn int)
 	return best
 }
 
-func appendScreenText(lines *[]string, current *string, text string) {
+func appendScreenText(lines *[]screenOutputLine, current *screenOutputLine, kind DisplayKind, text string) []screenOutputLine {
 	text = strings.ReplaceAll(text, "\r", "")
+	if text == "" {
+		return nil
+	}
+	if current.text != "" && current.kind != kind {
+		*lines = append(*lines, *current)
+		*current = screenOutputLine{}
+	}
+	if current.kind == "" {
+		current.kind = kind
+	}
 	parts := strings.Split(text, "\n")
 	if len(parts) == 1 {
-		*current += parts[0]
-		return
+		current.text += parts[0]
+		return nil
 	}
 
-	*current += parts[0]
+	completed := make([]screenOutputLine, 0, len(parts)-1)
+	current.text += parts[0]
+	completed = append(completed, *current)
 	*lines = append(*lines, *current)
 	for _, part := range parts[1 : len(parts)-1] {
-		*lines = append(*lines, part)
+		line := screenOutputLine{kind: kind, text: part}
+		completed = append(completed, line)
+		*lines = append(*lines, line)
 	}
-	*current = parts[len(parts)-1]
+	*current = screenOutputLine{kind: kind, text: parts[len(parts)-1]}
+	return completed
 }
 
-func appendWrappedStyledScreenLine(lines []string, line string, width int, styles screenStyles) []string {
-	kind := screenLineStyleKind(line)
+func appendWrappedStyledScreenLine(lines []string, line screenOutputLine, width int, styles screenStyles) []string {
 	for idx, wrapped := range wrapScreenLine(line, width) {
-		lines = append(lines, styleWrappedScreenLine(wrapped, kind, idx, styles))
+		lines = append(lines, styleWrappedScreenLine(wrapped, line.kind, idx, styles))
 	}
 	return lines
 }
 
-func wrapScreenLine(line string, width int) []string {
-	if width <= 0 || lipgloss.Width(line) <= width {
-		return []string{line}
+func wrapScreenLine(line screenOutputLine, width int) []string {
+	if width <= 0 || lipgloss.Width(line.text) <= width {
+		return []string{line.text}
 	}
 
-	firstIndent := leadingWhitespace(line)
+	firstIndent := leadingWhitespace(line.text)
 	indent := continuationIndent(line)
-	tokens := splitWrapTokens(line)
+	tokens := splitWrapTokens(line.text)
 	if len(tokens) == 0 {
-		return []string{line}
+		return []string{line.text}
 	}
 
 	lines := make([]string, 0, 4)
@@ -1148,7 +1167,7 @@ func wrapScreenLine(line string, width int) []string {
 		lines = append(lines, strings.TrimRight(current, " "))
 	}
 	if len(lines) == 0 {
-		return []string{line}
+		return []string{line.text}
 	}
 	return lines
 }
@@ -1180,18 +1199,20 @@ func leadingWhitespace(s string) string {
 	return s[:idx]
 }
 
-func continuationIndent(line string) string {
-	trimmed := strings.TrimLeft(line, " \t")
-	if isCommLine(trimmed) {
+func continuationIndent(line screenOutputLine) string {
+	if line.kind == DisplayKindCommunication {
 		return labeledBodyContinuationIndent(line)
 	}
-	if isProviderStreamLine(trimmed) {
+	if line.kind == DisplayKindTaskActivity {
 		return labeledBodyContinuationIndent(line)
 	}
-	if strings.HasPrefix(trimmed, ">_ ") {
-		return leadingWhitespace(line) + "   "
+	if line.kind == DisplayKindProviderStderr || line.kind == DisplayKindProviderStdout {
+		return labeledBodyContinuationIndent(line)
 	}
-	return leadingWhitespace(line)
+	if line.kind == DisplayKindTool {
+		return leadingWhitespace(line.text) + strings.Repeat(" ", lipgloss.Width("· "))
+	}
+	return leadingWhitespace(line.text)
 }
 
 func abs(v int) int {
@@ -1201,36 +1222,38 @@ func abs(v int) int {
 	return v
 }
 
-func styleScreenLine(line string, styles screenStyles) string {
-	return styleWrappedScreenLine(line, screenLineStyleKind(line), 0, styles)
+func styleScreenLine(line screenOutputLine, styles screenStyles) string {
+	return styleWrappedScreenLine(line.text, line.kind, 0, styles)
 }
 
-func styleWrappedScreenLine(line string, kind string, wrapIndex int, styles screenStyles) string {
+func styleWrappedScreenLine(line string, kind DisplayKind, wrapIndex int, styles screenStyles) string {
 	switch kind {
-	case "prompt":
+	case DisplayKindPrompt:
 		return styles.prompt.Render(line)
-	case "separator":
+	case DisplayKindSeparator:
 		return styles.separator.Render(line)
-	case "tool":
+	case DisplayKindTool:
 		if wrapIndex > 0 {
 			return styles.toolMuted.Render(line)
 		}
 		return styleScreenToolLine(line, styles)
-	case "tool_detail":
+	case DisplayKindToolDetail:
 		return styles.toolMuted.Render(line)
-	case "comms":
+	case DisplayKindCommunication:
 		return styleScreenCommLine(line, styles)
-	case "provider_stdout":
+	case DisplayKindTaskActivity:
+		return styleScreenTaskLine(line, styles)
+	case DisplayKindProviderStdout:
 		return styleScreenProviderLine(line, styles, false)
-	case "provider_stderr":
+	case DisplayKindProviderStderr:
 		return styleScreenProviderLine(line, styles, true)
-	case "result":
+	case DisplayKindResult:
 		return styles.result.Render(line)
-	case "done":
+	case DisplayKindDone:
 		return styles.done.Render(line)
-	case "info":
+	case DisplayKindInfo:
 		return styles.info.Render(line)
-	case "hint":
+	case DisplayKindHint:
 		return styles.hint.Render(line)
 	default:
 		return styleScreenToolClosingParen(line, styles)
@@ -1238,7 +1261,7 @@ func styleWrappedScreenLine(line string, kind string, wrapIndex int, styles scre
 }
 
 func styleScreenToolLine(line string, styles screenStyles) string {
-	const prefix = ">_ "
+	const prefix = "· "
 	if !strings.HasPrefix(line, prefix) {
 		return styles.tool.Render(line)
 	}
@@ -1275,7 +1298,7 @@ func styleScreenToolClosingParen(line string, styles screenStyles) string {
 func styleScreenCommLine(line string, styles screenStyles) string {
 	indent := leadingWhitespace(line)
 	trimmed := strings.TrimPrefix(line, indent)
-	if !isCommLine(trimmed) {
+	if !strings.HasPrefix(trimmed, "• from ") && !strings.HasPrefix(trimmed, "• to ") {
 		return line
 	}
 
@@ -1291,6 +1314,24 @@ func styleScreenCommLine(line string, styles screenStyles) string {
 	return indent + styles.comms.Render(head) + tail
 }
 
+func styleScreenTaskLine(line string, styles screenStyles) string {
+	indent := leadingWhitespace(line)
+	trimmed := strings.TrimPrefix(line, indent)
+	if !strings.HasPrefix(trimmed, "•") {
+		return indent + styles.task.Render(trimmed)
+	}
+
+	headEnd := len(trimmed)
+	if idx := strings.Index(trimmed, ":"); idx >= 0 {
+		headEnd = idx
+	} else if idx := strings.Index(trimmed, " — "); idx >= 0 {
+		headEnd = idx
+	}
+	head := trimmed[:headEnd]
+	tail := trimmed[headEnd:]
+	return indent + styles.taskBullet.Render("•") + styles.task.Render(strings.TrimPrefix(head, "•")) + tail
+}
+
 func styleScreenProviderLine(line string, styles screenStyles, isError bool) string {
 	indent := leadingWhitespace(line)
 	trimmed := strings.TrimPrefix(line, indent)
@@ -1302,56 +1343,16 @@ func styleScreenProviderLine(line string, styles screenStyles, isError bool) str
 		return line
 	}
 
-	bodyStyle := lipgloss.NewStyle()
+	bodyStyle := styles.toolMuted
 	if isError {
 		bodyStyle = styles.streamError
 	}
 	return indent + styles.streamLabel.Render(label) + bodyStyle.Render(tail)
 }
 
-func screenLineStyleKind(line string) string {
-	trimmed := strings.TrimSpace(line)
-	switch {
-	case strings.HasPrefix(trimmed, "────"):
-		return "separator"
-	case strings.HasPrefix(trimmed, "> "):
-		return "prompt"
-	case strings.HasPrefix(trimmed, ">_ "):
-		return "tool"
-	case strings.HasPrefix(line, "  ->"), strings.HasPrefix(line, "  ="):
-		return "result"
-	case isCommLine(trimmed):
-		return "comms"
-	case strings.HasPrefix(trimmed, "provider stderr:"):
-		return "provider_stderr"
-	case strings.HasPrefix(trimmed, "provider stdout:"):
-		return "provider_stdout"
-	case strings.HasPrefix(trimmed, "->"):
-		return "result"
-	case isToolDetailLine(line):
-		return "tool_detail"
-	case strings.HasPrefix(trimmed, "done"):
-		return "done"
-	case strings.HasPrefix(trimmed, "info:"):
-		return "info"
-	case strings.HasPrefix(trimmed, "type /"):
-		return "hint"
-	default:
-		return "plain"
-	}
-}
-
-func isCommLine(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "• from ") || strings.HasPrefix(trimmed, "• to ")
-}
-
-func isProviderStreamLine(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "provider stderr:") || strings.HasPrefix(trimmed, "provider stdout:")
-}
-
-func labeledBodyContinuationIndent(line string) string {
-	indent := leadingWhitespace(line)
-	trimmed := strings.TrimPrefix(line, indent)
+func labeledBodyContinuationIndent(line screenOutputLine) string {
+	indent := leadingWhitespace(line.text)
+	trimmed := strings.TrimPrefix(line.text, indent)
 	label, tail, ok := splitLabeledLine(trimmed)
 	if ok && strings.TrimSpace(tail) != "" {
 		return indent + strings.Repeat(" ", lipgloss.Width(label+leadingBodySpacing(tail)))
@@ -1361,24 +1362,11 @@ func labeledBodyContinuationIndent(line string) string {
 		return indent + strings.Repeat(" ", len("• from "))
 	case strings.HasPrefix(trimmed, "• to "):
 		return indent + strings.Repeat(" ", len("• to "))
+	case strings.HasPrefix(trimmed, "• "):
+		return indent + strings.Repeat(" ", len("• "))
 	default:
 		return indent + "   "
 	}
-}
-
-func isToolDetailLine(line string) bool {
-	indent := leadingWhitespace(line)
-	if len(indent) < 2 {
-		return false
-	}
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		return false
-	}
-	if strings.HasPrefix(trimmed, ">") || strings.HasPrefix(trimmed, "<-") || strings.HasPrefix(trimmed, "->") || isCommLine(trimmed) || isProviderStreamLine(trimmed) {
-		return false
-	}
-	return strings.Contains(trimmed, "=")
 }
 
 func splitLabeledLine(line string) (string, string, bool) {

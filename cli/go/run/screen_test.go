@@ -8,46 +8,75 @@ import (
 )
 
 func TestAppendScreenTextTracksCompleteAndPartialLines(t *testing.T) {
-	lines := []string{}
-	current := ""
+	lines := []screenOutputLine{}
+	current := screenOutputLine{}
 
-	appendScreenText(&lines, &current, "first line\nsecond")
-	appendScreenText(&lines, &current, " line\nthird line\n")
+	appendScreenText(&lines, &current, DisplayKindAgentText, "first line\nsecond")
+	appendScreenText(&lines, &current, DisplayKindAgentText, " line\nthird line\n")
 
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 completed lines, got %d", len(lines))
 	}
-	if lines[0] != "first line" || lines[1] != "second line" || lines[2] != "third line" {
+	if lines[0].text != "first line" || lines[1].text != "second line" || lines[2].text != "third line" {
 		t.Fatalf("unexpected completed lines: %#v", lines)
 	}
-	if current != "" {
-		t.Fatalf("expected no trailing partial line, got %q", current)
+	if current.text != "" {
+		t.Fatalf("expected no trailing partial line, got %#v", current)
 	}
 }
 
-func TestStyleScreenLineCategories(t *testing.T) {
+func TestStyleWrappedScreenLineUsesDisplayKinds(t *testing.T) {
 	cases := []struct {
+		kind DisplayKind
 		line string
 		want string
 	}{
-		{line: "> fix the bug", want: "prompt"},
-		{line: `>_ go test ./... 2>&1`, want: "tool"},
-		{line: `  file_path="/tmp/image.png"`, want: "tool_detail"},
-		{line: `   1. PTY default-off`, want: "plain"},
-		{line: "• from dave (mail): please review this", want: "comms"},
-		{line: "• to henry (chat)", want: "comms"},
-		{line: "provider stderr: approval required", want: "provider_stderr"},
-		{line: "provider stdout: Allow? [y/N]", want: "provider_stdout"},
-		{line: "  = ok", want: "result"},
-		{line: "done  2.1s", want: "done"},
-		{line: "info: session", want: "info"},
-		{line: "type /wait, /autofeed off, /stop", want: "hint"},
-		{line: "────────────────────────────────────────", want: "separator"},
-		{line: "plain text", want: "plain"},
+		{kind: DisplayKindPrompt, line: "> fix the bug", want: "prompt"},
+		{kind: DisplayKindTool, line: `· go test ./... 2>&1`, want: "tool"},
+		{kind: DisplayKindToolDetail, line: `  file_path="/tmp/image.png"`, want: "tool_detail"},
+		{kind: DisplayKindPlain, line: `   1. PTY default-off`, want: "plain"},
+		{kind: DisplayKindCommunication, line: "• from dave (mail): please review this", want: "comms"},
+		{kind: DisplayKindCommunication, line: "• to henry (chat)", want: "comms"},
+		{kind: DisplayKindTaskActivity, line: "• task update aweb-aaat.1", want: "task"},
+		{kind: DisplayKindProviderStderr, line: "provider stderr: approval required", want: "provider_stderr"},
+		{kind: DisplayKindProviderStdout, line: "provider stdout: Allow? [y/N]", want: "provider_stdout"},
+		{kind: DisplayKindResult, line: "  = ok", want: "result"},
+		{kind: DisplayKindDone, line: "done  2.1s", want: "done"},
+		{kind: DisplayKindInfo, line: "info: session", want: "info"},
+		{kind: DisplayKindHint, line: "type /wait, /autofeed off, /stop", want: "hint"},
+		{kind: DisplayKindSeparator, line: "────────────────────────────────────────", want: "separator"},
+		{kind: DisplayKindPlain, line: "plain text", want: "plain"},
 	}
 
 	for _, tc := range cases {
-		if got := screenLineStyleKind(tc.line); got != tc.want {
+		got := "plain"
+		switch tc.kind {
+		case DisplayKindPrompt:
+			got = "prompt"
+		case DisplayKindTool:
+			got = "tool"
+		case DisplayKindToolDetail:
+			got = "tool_detail"
+		case DisplayKindCommunication:
+			got = "comms"
+		case DisplayKindTaskActivity:
+			got = "task"
+		case DisplayKindProviderStderr:
+			got = "provider_stderr"
+		case DisplayKindProviderStdout:
+			got = "provider_stdout"
+		case DisplayKindResult:
+			got = "result"
+		case DisplayKindDone:
+			got = "done"
+		case DisplayKindInfo:
+			got = "info"
+		case DisplayKindHint:
+			got = "hint"
+		case DisplayKindSeparator:
+			got = "separator"
+		}
+		if got != tc.want {
 			t.Fatalf("line %q: expected %s, got %s", tc.line, tc.want, got)
 		}
 	}
@@ -55,8 +84,8 @@ func TestStyleScreenLineCategories(t *testing.T) {
 
 func TestStyleScreenLineKeepsToolArgumentsNeutralOnFirstLine(t *testing.T) {
 	styles := newScreenStyles()
-	got := styleScreenLine(`>_ View /tmp/image.png`, styles)
-	want := styles.tool.Render(`>_ View`) + styles.toolMuted.Render(` /tmp/image.png`)
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindTool, text: `· View /tmp/image.png`}, styles)
+	want := styles.tool.Render(`· View`) + styles.toolMuted.Render(` /tmp/image.png`)
 	if got != want {
 		t.Fatalf("unexpected styled tool line %q", got)
 	}
@@ -64,8 +93,8 @@ func TestStyleScreenLineKeepsToolArgumentsNeutralOnFirstLine(t *testing.T) {
 
 func TestStyleScreenLineDeemphasizesToolArgsAfterOpeningParen(t *testing.T) {
 	styles := newScreenStyles()
-	got := styleScreenLine(`>_ browser_click(ref="abc", element="Submit")`, styles)
-	want := styles.tool.Render(`>_ browser_click`) + styles.toolMuted.Render(`(ref="abc", element="Submit")`)
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindTool, text: `· browser_click(ref="abc", element="Submit")`}, styles)
+	want := styles.tool.Render(`· browser_click`) + styles.toolMuted.Render(`(ref="abc", element="Submit")`)
 	if got != want {
 		t.Fatalf("unexpected styled tool line %q", got)
 	}
@@ -73,7 +102,7 @@ func TestStyleScreenLineDeemphasizesToolArgsAfterOpeningParen(t *testing.T) {
 
 func TestStyleScreenLineColorsClosingParenOnContinuation(t *testing.T) {
 	styles := newScreenStyles()
-	got := styleScreenLine(`       offset=48)`, styles)
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindToolDetail, text: `       offset=48)`}, styles)
 	want := styles.toolMuted.Render(`       offset=48)`)
 	if got != want {
 		t.Fatalf("unexpected styled continuation line %q", got)
@@ -82,16 +111,25 @@ func TestStyleScreenLineColorsClosingParenOnContinuation(t *testing.T) {
 
 func TestStyleScreenLineStylesCommLabel(t *testing.T) {
 	styles := newScreenStyles()
-	got := styleScreenLine(`• from dave (mail): merged to main`, styles)
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindCommunication, text: `• from dave (mail): merged to main`}, styles)
 	want := styles.commsBullet.Render(`•`) + styles.comms.Render(` from dave (mail)`) + `: merged to main`
 	if got != want {
 		t.Fatalf("unexpected styled comm line %q", got)
 	}
 }
 
+func TestStyleScreenLineStylesTaskLabel(t *testing.T) {
+	styles := newScreenStyles()
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindTaskActivity, text: `• task update aweb-aaat.1`}, styles)
+	want := styles.taskBullet.Render(`•`) + styles.task.Render(` task update aweb-aaat.1`)
+	if got != want {
+		t.Fatalf("unexpected styled task line %q", got)
+	}
+}
+
 func TestStyleScreenLineStylesProviderStderrLabel(t *testing.T) {
 	styles := newScreenStyles()
-	got := styleScreenLine(`provider stderr: approval required`, styles)
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindProviderStderr, text: `provider stderr: approval required`}, styles)
 	want := styles.streamLabel.Render(`provider stderr:`) + styles.streamError.Render(` approval required`)
 	if got != want {
 		t.Fatalf("unexpected provider stderr line %q", got)
@@ -170,7 +208,7 @@ func TestShortRepoNameFallsBackToRepoOrigin(t *testing.T) {
 }
 
 func TestWrapScreenLineWrapsLongToolFields(t *testing.T) {
-	lines := wrapScreenLine(`  command="git fetch origin main && git log --oneline origin/main -5"`, 32)
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindToolDetail, text: `  command="git fetch origin main && git log --oneline origin/main -5"`}, 32)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
@@ -182,7 +220,7 @@ func TestWrapScreenLineWrapsLongToolFields(t *testing.T) {
 }
 
 func TestWrapScreenLineKeepsToolArgIndent(t *testing.T) {
-	lines := wrapScreenLine(`       file_path="/Users/juanre/prj/beadhub-all/aw/run/screen.go",`, 40)
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindToolDetail, text: `       file_path="/Users/juanre/prj/beadhub-all/aw/run/screen.go",`}, 40)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
@@ -194,7 +232,7 @@ func TestWrapScreenLineKeepsToolArgIndent(t *testing.T) {
 }
 
 func TestWrapScreenLineUsesHangingIndentForCommLines(t *testing.T) {
-	lines := wrapScreenLine(`• from dave (mail): this is a long coordination update that should wrap cleanly`, 28)
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindCommunication, text: `• from dave (mail): this is a long coordination update that should wrap cleanly`}, 28)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
@@ -207,7 +245,7 @@ func TestWrapScreenLineUsesHangingIndentForCommLines(t *testing.T) {
 }
 
 func TestWrapScreenLineUsesHangingIndentForProviderStderr(t *testing.T) {
-	lines := wrapScreenLine(`provider stderr: approval required because sandbox escalation was denied`, 34)
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindProviderStderr, text: `provider stderr: approval required because sandbox escalation was denied`}, 34)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
@@ -219,12 +257,12 @@ func TestWrapScreenLineUsesHangingIndentForProviderStderr(t *testing.T) {
 }
 
 func TestWrapScreenLineUsesHangingIndentForTopLevelToolLines(t *testing.T) {
-	lines := wrapScreenLine(`>_ aw mail inbox --unread-only --format json 2>/dev/null | python3 -c "print(1)"`, 34)
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindTool, text: `· aw mail inbox --unread-only --format json 2>/dev/null | python3 -c "print(1)"`}, 34)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped lines, got %#v", lines)
 	}
 	for _, line := range lines[1:] {
-		if !strings.HasPrefix(line, "   ") {
+		if !strings.HasPrefix(line, "  ") {
 			t.Fatalf("expected wrapped tool continuation to align under the command, got %#v", lines)
 		}
 	}
@@ -232,7 +270,7 @@ func TestWrapScreenLineUsesHangingIndentForTopLevelToolLines(t *testing.T) {
 
 func TestAppendWrappedStyledScreenLineDeemphasizesToolContinuations(t *testing.T) {
 	styles := newScreenStyles()
-	source := `>_ aw mail inbox --unread-only --format json 2>/dev/null | python3 -c "print(1)"`
+	source := screenOutputLine{kind: DisplayKindTool, text: `· aw mail inbox --unread-only --format json 2>/dev/null | python3 -c "print(1)"`}
 	wrapped := wrapScreenLine(source, 34)
 	lines := appendWrappedStyledScreenLine(nil, source, 34, styles)
 	if len(lines) != len(wrapped) || len(lines) < 2 {
@@ -291,7 +329,7 @@ func TestScreenControllerFooterPlacesPromptAboveStatusWithoutDivider(t *testing.
 func TestScreenControllerFooterSeparatesCurrentTextFromPrompt(t *testing.T) {
 	screen := &ScreenController{
 		promptLabel: ">> ",
-		current:     "assistant reply",
+		current:     screenOutputLine{kind: DisplayKindAgentText, text: "assistant reply"},
 		inputLine:   ">> next",
 		inputCursor: len([]rune("next")),
 		styles:      newScreenStyles(),
@@ -323,7 +361,7 @@ func TestScreenControllerFooterSeparatesCurrentTextFromPrompt(t *testing.T) {
 func TestScreenControllerFooterSeparatesTranscriptHistoryFromPrompt(t *testing.T) {
 	screen := &ScreenController{
 		promptLabel: ">> ",
-		lines:       []string{"assistant reply"},
+		lines:       []screenOutputLine{{kind: DisplayKindAgentText, text: "assistant reply"}},
 		inputLine:   ">> next",
 		inputCursor: len([]rune("next")),
 		styles:      newScreenStyles(),
@@ -341,7 +379,7 @@ func TestScreenControllerFooterSeparatesTranscriptHistoryFromPrompt(t *testing.T
 func TestScreenControllerFooterCursorTracksPromptAfterHistorySpacer(t *testing.T) {
 	screen := &ScreenController{
 		promptLabel: ">> ",
-		lines:       []string{"assistant reply"},
+		lines:       []screenOutputLine{{kind: DisplayKindAgentText, text: "assistant reply"}},
 		inputLine:   ">> asdf",
 		inputCursor: len([]rune("asdf")),
 		styles:      newScreenStyles(),
@@ -365,8 +403,11 @@ func TestScreenControllerRenderStatusLineShowsBusySpinner(t *testing.T) {
 	if !strings.Contains(line, screenSpinnerFrames[2]) {
 		t.Fatalf("expected spinner frame in status line, got %q", line)
 	}
-	if !strings.Contains(line, "working") {
-		t.Fatalf("expected status text to remain, got %q", line)
+	if !strings.Contains(line, "WORKING") {
+		t.Fatalf("expected explicit working label, got %q", line)
+	}
+	if !strings.Contains(line, "· working") {
+		t.Fatalf("expected status text to remain after working label, got %q", line)
 	}
 }
 

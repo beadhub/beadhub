@@ -784,6 +784,9 @@ func TestNewRunDispatcherBuildsMailPrompt(t *testing.T) {
 	if !strings.Contains(decision.CycleContext, "• from mia (mail): API review — please take a look") {
 		t.Fatalf("expected hydrated mail content, got %q", decision.CycleContext)
 	}
+	if len(decision.DisplayLines) == 0 || decision.DisplayLines[0].Kind != awrun.DisplayKindCommunication {
+		t.Fatalf("expected communication display lines, got %+v", decision.DisplayLines)
+	}
 	if !strings.Contains(decision.CycleContext, "comms suffix") {
 		t.Fatalf("expected comms suffix in prompt, got %q", decision.CycleContext)
 	}
@@ -832,6 +835,9 @@ func TestNewRunDispatcherBuildsActionableChatPrompt(t *testing.T) {
 	if !strings.Contains(decision.CycleContext, "• from henry (chat): ping") {
 		t.Fatalf("expected hydrated chat content, got %q", decision.CycleContext)
 	}
+	if len(decision.DisplayLines) == 0 || decision.DisplayLines[0].Kind != awrun.DisplayKindCommunication {
+		t.Fatalf("expected communication display lines, got %+v", decision.DisplayLines)
+	}
 }
 
 func TestNewRunDispatcherBuildsIdleActionableChatPrompt(t *testing.T) {
@@ -854,6 +860,9 @@ func TestNewRunDispatcherBuildsIdleActionableChatPrompt(t *testing.T) {
 	}
 	if !strings.Contains(decision.CycleContext, "• from rose (chat): when you have a moment") {
 		t.Fatalf("expected chat content, got %q", decision.CycleContext)
+	}
+	if len(decision.DisplayLines) == 0 || decision.DisplayLines[0].Kind != awrun.DisplayKindCommunication {
+		t.Fatalf("expected communication display lines, got %+v", decision.DisplayLines)
 	}
 }
 
@@ -910,6 +919,29 @@ func TestNewRunDispatcherSkipsWorkWakeWithoutAutofeed(t *testing.T) {
 	}
 	if !decision.Skip {
 		t.Fatalf("expected work wake without autofeed to skip, got %+v", decision)
+	}
+}
+
+func TestNewRunDispatcherBuildsTaskActivityDisplayForWorkWake(t *testing.T) {
+	dispatcher := newRunDispatcher(awrun.Settings{}, nil)
+
+	decision, err := dispatcher.Next(context.Background(), true, &awid.AgentEvent{
+		Type:   awid.AgentEventClaimUpdate,
+		TaskID: "aweb-aaat.1",
+		Title:  "Introduce a semantic run display model",
+		Status: "in_progress",
+	})
+	if err != nil {
+		t.Fatalf("Next returned error: %v", err)
+	}
+	if len(decision.DisplayLines) != 1 {
+		t.Fatalf("expected one task activity display line, got %+v", decision.DisplayLines)
+	}
+	if decision.DisplayLines[0].Kind != awrun.DisplayKindTaskActivity {
+		t.Fatalf("expected task activity kind, got %+v", decision.DisplayLines)
+	}
+	if !strings.Contains(decision.DisplayLines[0].Text, "claim changed") {
+		t.Fatalf("expected claim activity text, got %+v", decision.DisplayLines)
 	}
 }
 

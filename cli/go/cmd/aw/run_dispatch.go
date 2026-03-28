@@ -53,6 +53,7 @@ func (d runDispatcher) Next(ctx context.Context, autofeed bool, wakeEvent *awid.
 		}
 		return awrun.DispatchDecision{
 			CycleContext: joinPromptSections(resolved.CycleContext, d.commsPromptSuffix),
+			DisplayLines: awrun.SplitDisplayText(awrun.DisplayKindCommunication, resolved.CycleContext),
 			WaitSeconds:  awrun.DefaultWaitSeconds,
 		}, nil
 	case awid.AgentEventWorkAvailable, awid.AgentEventClaimUpdate, awid.AgentEventClaimRemoved:
@@ -61,6 +62,7 @@ func (d runDispatcher) Next(ctx context.Context, autofeed bool, wakeEvent *awid.
 		}
 		return awrun.DispatchDecision{
 			CycleContext: joinPromptSections(formatWorkWakePrompt(*wakeEvent), d.workPromptSuffix),
+			DisplayLines: formatWorkWakeDisplay(*wakeEvent),
 			WaitSeconds:  awrun.DefaultWaitSeconds,
 		}, nil
 	default:
@@ -343,6 +345,24 @@ func formatWorkWakePrompt(evt awid.AgentEvent) string {
 	default:
 		return ""
 	}
+}
+
+func formatWorkWakeDisplay(evt awid.AgentEvent) []awrun.DisplayLine {
+	var text string
+	switch evt.Type {
+	case awid.AgentEventWorkAvailable:
+		text = "• work available" + formatWakeTask(evt)
+	case awid.AgentEventClaimUpdate:
+		text = "• claim changed" + formatWakeTask(evt)
+		if status := strings.TrimSpace(evt.Status); status != "" {
+			text += " — " + status
+		}
+	case awid.AgentEventClaimRemoved:
+		text = "• claim removed" + formatWakeTask(evt)
+	default:
+		return nil
+	}
+	return awrun.SplitDisplayText(awrun.DisplayKindTaskActivity, text)
 }
 
 func formatWakeAlias(alias string) string {
