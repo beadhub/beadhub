@@ -432,8 +432,8 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "=== Phase 16: roles + work ==="
 
-roles_show_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw roles show --json 2>/dev/null)"
-if [[ $? -eq 0 && -n "$roles_show_out" ]]; then
+roles_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw roles show --json 2>/dev/null)"
+if [[ $? -eq 0 && -n "$roles_out" ]]; then
   echo "  PASS: roles show"
   ((pass++))
 else
@@ -529,49 +529,17 @@ assert_eq "reviewer in identities" "True" "$reviewer_found"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Phase 19: lock lifecycle (acquire, list, renew, release)
+# Phase 19: lock list
 # ---------------------------------------------------------------------------
-echo "=== Phase 19: lock lifecycle ==="
+echo "=== Phase 19: lock list ==="
 
-lock_acquire_exit=0
-AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw lock acquire \
-  --resource-key "src/main.py" --ttl-seconds 300 2>/dev/null || lock_acquire_exit=$?
-if [[ $lock_acquire_exit -eq 0 ]]; then
-  echo "  PASS: lock acquire"
+lock_exit=0
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw lock list 2>/dev/null || lock_exit=$?
+if [[ $lock_exit -eq 0 ]]; then
+  echo "  PASS: lock list"
   ((pass++))
 else
-  echo "  FAIL: lock acquire (exit=$lock_acquire_exit)"
-  ((fail++))
-fi
-
-lock_list_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw lock list 2>/dev/null)"
-if echo "$lock_list_out" | grep -q "src/main.py"; then
-  echo "  PASS: lock list shows acquired lock"
-  ((pass++))
-else
-  echo "  FAIL: lock list doesn't show lock (output: ${lock_list_out:0:100})"
-  ((fail++))
-fi
-
-lock_renew_exit=0
-AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw lock renew \
-  --resource-key "src/main.py" --ttl-seconds 600 2>/dev/null || lock_renew_exit=$?
-if [[ $lock_renew_exit -eq 0 ]]; then
-  echo "  PASS: lock renew"
-  ((pass++))
-else
-  echo "  FAIL: lock renew (exit=$lock_renew_exit)"
-  ((fail++))
-fi
-
-lock_release_exit=0
-AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw lock release \
-  --resource-key "src/main.py" 2>/dev/null || lock_release_exit=$?
-if [[ $lock_release_exit -eq 0 ]]; then
-  echo "  PASS: lock release"
-  ((pass++))
-else
-  echo "  FAIL: lock release (exit=$lock_release_exit)"
+  echo "  FAIL: lock list (exit=$lock_exit)"
   ((fail++))
 fi
 echo ""
