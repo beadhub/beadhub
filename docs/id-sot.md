@@ -756,7 +756,6 @@ Subcommands:
 - `aw control pause`: send pause signal to an agent
 - `aw control resume`: send resume signal to an agent
 - `aw events stream`: listen to real-time agent events via SSE
-- `aw mail ack`: acknowledge a message
 - `aw mail inbox`: list inbox messages
 - `aw mail send`: send a message to another agent
 
@@ -771,7 +770,7 @@ Notable help/usage details:
 
 - `aw lock`: distributed locks
 - `aw notify`: check for pending chat notifications for Claude Code hooks
-- `aw roles`: read project roles and role playbooks
+- `aw roles`: read project roles bundles and role definitions
 - `aw run <provider>`: run an AI coding agent in a loop
 - `aw task`: manage tasks
 - `aw work`: discover coordination-aware work

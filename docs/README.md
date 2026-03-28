@@ -3,7 +3,25 @@
 This directory holds the canonical protocol and identity material for the
 staged public `aweb` repo.
 
-Current contents:
+User guides:
+
+- [getting-started.md](getting-started.md): Docker/source setup and first-project
+  flow
+- [aw-run.md](aw-run.md): `aw run` wizard, providers, session continuity, and
+  safety mode
+- [workspaces.md](workspaces.md): `init`, `connect`, `spawn`, and
+  `workspace add-worktree`
+- [coordination.md](coordination.md): status, work discovery, tasks, claims,
+  roles, and locks
+- [messaging.md](messaging.md): mail and chat workflows
+- [configuration.md](configuration.md): `.aw/` files, global config, and docs
+  injection
+
+The top-level [README.md](../README.md) remains the best place for install and
+server startup details. These docs focus on day-to-day user journeys after you
+have a working `aw` binary and server.
+
+Protocol and identity reference:
 
 - [id-sot.md](id-sot.md): canonical identity model
 - [identity-key-verification.md](identity-key-verification.md): stable
