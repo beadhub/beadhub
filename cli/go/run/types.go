@@ -37,8 +37,17 @@ type BuildOptions struct {
 	AllowedTools    string
 	Model           string
 	AddDirs         []string
+	ImagePaths      []string
+	PromptTransport PromptTransport
 	ProviderArgs    []string
 }
+
+type PromptTransport string
+
+const (
+	PromptTransportArg   PromptTransport = "arg"
+	PromptTransportStdin PromptTransport = "stdin"
+)
 
 type Provider interface {
 	Name() string
@@ -168,6 +177,7 @@ type DispatchDecision struct {
 	CycleContext string
 	DisplayLines []DisplayLine
 	UserPrompt   string
+	ImagePaths   []string
 	WaitSeconds  int
 	Skip         bool
 }

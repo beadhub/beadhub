@@ -2,6 +2,8 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,6 +79,44 @@ func TestUnknownCommandEventPrintsError(t *testing.T) {
 	}
 	if !strings.Contains(output, "/help") {
 		t.Fatalf("expected /help hint in error, got %q", output)
+	}
+}
+
+func TestUnknownSlashPathQueuesAttachmentPrompt(t *testing.T) {
+	var out bytes.Buffer
+	loop := NewLoop(fakeProvider{}, &out)
+	st := &state{}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, []byte("png"), 0o644); err != nil {
+		t.Fatalf("write image file: %v", err)
+	}
+
+	loop.applyControlEvent(ControlEvent{Type: ControlUnknownCommand, Text: path}, st, false, nil)
+
+	if got := out.String(); strings.Contains(got, "unknown command") {
+		t.Fatalf("did not expect unknown command output, got %q", got)
+	}
+	if st.NextPrompt != "User attached image: "+path {
+		t.Fatalf("unexpected queued prompt %q", st.NextPrompt)
+	}
+	if len(st.NextImagePaths) != 1 || st.NextImagePaths[0] != path {
+		t.Fatalf("unexpected queued image paths %#v", st.NextImagePaths)
+	}
+}
+
+func TestQueuePromptTextPreservesImageOnlyInput(t *testing.T) {
+	loop := NewLoop(fakeProvider{}, &bytes.Buffer{})
+	st := &state{}
+
+	loop.queuePromptText(st, "", []string{"/tmp/image.png"}, false)
+
+	if st.NextPrompt != "User attached image: /tmp/image.png" {
+		t.Fatalf("unexpected queued prompt %q", st.NextPrompt)
+	}
+	if len(st.NextImagePaths) != 1 || st.NextImagePaths[0] != "/tmp/image.png" {
+		t.Fatalf("unexpected queued image paths %#v", st.NextImagePaths)
 	}
 }
 

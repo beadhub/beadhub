@@ -50,6 +50,7 @@ type state struct {
 	ExitConfirmPending bool
 	Autofeed           bool
 	NextPrompt         string
+	NextImagePaths     []string
 	PendingInput       bool
 	InputBuffer        string
 	StructuredOut      bool
@@ -223,7 +224,7 @@ func (l *Loop) Run(ctx context.Context, opts LoopOptions) error {
 			return fmt.Errorf("prompt cannot be empty")
 		}
 		state.Run++
-		if err := l.runOnce(ctx, opts, state, fullPrompt, displayLines, decision.UserPrompt); err != nil {
+		if err := l.runOnce(ctx, opts, state, fullPrompt, decision.ImagePaths, displayLines, decision.UserPrompt); err != nil {
 			if state.StopRequested && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 				return nil
 			}
@@ -252,15 +253,22 @@ func (l *Loop) Run(ctx context.Context, opts LoopOptions) error {
 
 func (l *Loop) nextPrompt(ctx context.Context, opts LoopOptions, st *state) (DispatchDecision, error) {
 	queuedMissionPrompt := strings.TrimSpace(st.NextPrompt)
+	queuedImagePaths := append([]string(nil), st.NextImagePaths...)
 	if queuedMissionPrompt != "" {
 		st.NextPrompt = ""
+		st.NextImagePaths = nil
 	}
 	explicitMissionPrompt := queuedMissionPrompt
 	if explicitMissionPrompt == "" && st.Run == 0 {
 		explicitMissionPrompt = strings.TrimSpace(opts.InitialPrompt)
 	}
 	if explicitMissionPrompt != "" {
-		return DispatchDecision{Mission: explicitMissionPrompt, UserPrompt: explicitMissionPrompt, WaitSeconds: opts.WaitSeconds}, nil
+		return DispatchDecision{
+			Mission:     explicitMissionPrompt,
+			UserPrompt:  explicitMissionPrompt,
+			ImagePaths:  queuedImagePaths,
+			WaitSeconds: opts.WaitSeconds,
+		}, nil
 	}
 	if st.Run == 0 && strings.TrimSpace(opts.BasePrompt) != "" {
 		return DispatchDecision{Mission: strings.TrimSpace(opts.BasePrompt), WaitSeconds: opts.WaitSeconds}, nil
@@ -290,7 +298,7 @@ func (l *Loop) nextPrompt(ctx context.Context, opts LoopOptions, st *state) (Dis
 	return DispatchDecision{Mission: explicitMissionPrompt, WaitSeconds: opts.WaitSeconds}, nil
 }
 
-func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt string, displayLines []DisplayLine, userPrompt string) error {
+func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt string, imagePaths []string, displayLines []DisplayLine, userPrompt string) error {
 	l.clearStatusLine()
 	st.LastRunError = ""
 	st.LastRunUsage = UsageStats{}
@@ -301,9 +309,14 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 	expectedSessionID := strings.TrimSpace(st.SessionID)
 	followUpRun := st.RanOnce
 	buildOpts := BuildOptions{
-		AllowedTools: opts.AllowedTools,
-		Model:        opts.Model,
-		ProviderArgs: append([]string(nil), opts.ProviderArgs...),
+		AllowedTools:    opts.AllowedTools,
+		Model:           opts.Model,
+		ImagePaths:      append([]string(nil), imagePaths...),
+		PromptTransport: PromptTransportStdin,
+		ProviderArgs:    append([]string(nil), opts.ProviderArgs...),
+	}
+	if opts.ProviderPTY {
+		buildOpts.PromptTransport = PromptTransportArg
 	}
 	worktreeGitDir, err := detectWorktreeGitDir(opts.WorkingDir)
 	if err != nil {
@@ -329,6 +342,7 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 	if l.OnBuildCommand != nil {
 		buildCopy := buildOpts
 		buildCopy.AddDirs = append([]string(nil), buildOpts.AddDirs...)
+		buildCopy.ImagePaths = append([]string(nil), buildOpts.ImagePaths...)
 		buildCopy.ProviderArgs = append([]string(nil), buildOpts.ProviderArgs...)
 		l.OnBuildCommand(append([]string(nil), argv...), buildCopy)
 	}
@@ -384,6 +398,9 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 
 	sinks := &commandOutputSinks{
 		usePTY: opts.ProviderPTY,
+	}
+	if buildOpts.PromptTransport == PromptTransportStdin {
+		sinks.stdinText = prompt
 	}
 	if opts.ProviderPTY {
 		sinks.stdinReady = func(w io.WriteCloser) {
@@ -914,6 +931,17 @@ func (l *Loop) applyControlEvent(event ControlEvent, st *state, activeRun bool, 
 		l.renderInputPrompt(st)
 		return
 	case ControlUnknownCommand:
+		resolved, handled, err := resolvePromptInput(event.Text)
+		if err != nil {
+			l.printf("info: failed to attach input: %v\n", err)
+			l.renderInputPrompt(st)
+			return
+		}
+		if handled {
+			l.queuePromptText(st, resolved.Text, resolved.ImagePaths, activeRun)
+			l.renderInputPrompt(st)
+			return
+		}
 		l.printf("unknown command: %s — type /help for available commands\n", event.Text)
 		l.renderInputPrompt(st)
 		return
@@ -970,23 +998,16 @@ func (l *Loop) applyControlEvent(event ControlEvent, st *state, activeRun bool, 
 	case ControlPrompt:
 		st.PendingInput = false
 		st.InputBuffer = ""
-		newText := strings.TrimSpace(event.Text)
-		if existing := strings.TrimSpace(st.NextPrompt); existing != "" && newText != "" {
-			st.NextPrompt = existing + "\n\n" + newText
+		resolved, handled, err := resolvePromptInput(event.Text)
+		if err != nil {
+			l.printf("info: failed to attach input: %v\n", err)
+			l.renderInputPrompt(st)
+			return
+		}
+		if handled {
+			l.queuePromptText(st, resolved.Text, resolved.ImagePaths, activeRun)
 		} else {
-			st.NextPrompt = newText
-		}
-		st.Paused = false
-		st.PauseNoticeShown = false
-		if st.Autofeed {
-			st.Autofeed = false
-			l.announceAutofeedState(false, "disabled for manual conversation. use /autofeed on to re-enable.")
-		}
-		if activeRun {
-			l.printf("\nqueued: %s\n", newText)
-			if st.RunPhase == RunPhaseWorking {
-				l.setStatusLine(formatRunStatus(st))
-			}
+			l.queuePromptText(st, event.Text, nil, activeRun)
 		}
 		l.renderInputPrompt(st)
 	case ControlWait:
@@ -1059,6 +1080,38 @@ func (l *Loop) applyControlEvent(event ControlEvent, st *state, activeRun bool, 
 		}
 		l.println(pausedNoticeText)
 		st.PauseNoticeShown = true
+	}
+}
+
+func (l *Loop) queuePromptText(st *state, rawText string, imagePaths []string, activeRun bool) {
+	if st == nil {
+		return
+	}
+	newText := strings.TrimSpace(rawText)
+	st.NextImagePaths = append(st.NextImagePaths, imagePaths...)
+	if newText == "" {
+		if len(imagePaths) == 0 {
+			return
+		}
+		newText = formatAttachedImagePrompt(imagePaths)
+	}
+
+	if existing := strings.TrimSpace(st.NextPrompt); existing != "" && newText != "" {
+		st.NextPrompt = existing + "\n\n" + newText
+	} else {
+		st.NextPrompt = newText
+	}
+	st.Paused = false
+	st.PauseNoticeShown = false
+	if st.Autofeed {
+		st.Autofeed = false
+		l.announceAutofeedState(false, "disabled for manual conversation. use /autofeed on to re-enable.")
+	}
+	if activeRun {
+		l.printf("\nqueued: %s\n", newText)
+		if st.RunPhase == RunPhaseWorking {
+			l.setStatusLine(formatRunStatus(st))
+		}
 	}
 }
 
@@ -1423,8 +1476,9 @@ func RealCommandRunner(ctx context.Context, dir string, argv []string, onLine fu
 	}
 
 	stdinCallback := stdinReadyCallback(stderrSink)
+	stdinText := stdinTextPayload(stderrSink)
 	var stdin io.WriteCloser
-	if stdinCallback != nil {
+	if stdinCallback != nil || stdinText != "" {
 		stdin, err = cmd.StdinPipe()
 		if err != nil {
 			return err
@@ -1433,6 +1487,20 @@ func RealCommandRunner(ctx context.Context, dir string, argv []string, onLine fu
 
 	if err := cmd.Start(); err != nil {
 		return err
+	}
+	if stdinText != "" {
+		if _, err := io.WriteString(stdin, stdinText); err != nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		if stdinCallback == nil {
+			_ = stdin.Close()
+			stdin = nil
+		}
 	}
 	if stdinCallback != nil {
 		stdinCallback(stdin)
@@ -1480,6 +1548,7 @@ type pipeScanResult struct {
 
 type commandOutputSinks struct {
 	stdinReady    func(io.WriteCloser)
+	stdinText     string
 	usePTY        bool
 	ptyPartial    func(string)
 	stderrLine    func(string)
@@ -1608,4 +1677,12 @@ func stdinReadyCallback(stderrSink any) func(io.WriteCloser) {
 		return nil
 	}
 	return sinks.stdinReady
+}
+
+func stdinTextPayload(stderrSink any) string {
+	sinks, _ := stderrSink.(*commandOutputSinks)
+	if sinks == nil {
+		return ""
+	}
+	return sinks.stdinText
 }

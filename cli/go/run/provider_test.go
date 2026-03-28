@@ -9,18 +9,22 @@ func TestClaudeProviderBuildCommand(t *testing.T) {
 	provider := ClaudeProvider{}
 
 	command, err := provider.BuildCommand("fix the bug", BuildOptions{
-		AllowedTools: "exec_command,apply_patch",
-		Model:        "claude-sonnet-4",
-		AddDirs:      []string{"/tmp/gitdir", "/tmp/extra"},
-		ProviderArgs: []string{"--debug"},
+		AllowedTools:    "exec_command,apply_patch",
+		Model:           "claude-sonnet-4",
+		AddDirs:         []string{"/tmp/gitdir", "/tmp/extra"},
+		PromptTransport: PromptTransportStdin,
+		ProviderArgs:    []string{"--debug"},
 	})
 	if err != nil {
 		t.Fatalf("BuildCommand returned error: %v", err)
 	}
 
 	joined := strings.Join(command, " ")
-	if !strings.Contains(joined, "claude -p fix the bug") {
+	if !strings.Contains(joined, "claude -p --dangerously-skip-permissions") {
 		t.Fatalf("expected base command, got: %q", joined)
+	}
+	if strings.Contains(joined, "fix the bug") {
+		t.Fatalf("did not expect prompt in argv when using stdin transport, got: %q", joined)
 	}
 	if !strings.Contains(joined, "--dangerously-skip-permissions") {
 		t.Fatalf("expected skip permissions flag, got: %q", joined)
@@ -94,9 +98,11 @@ func TestCodexProviderBuildCommand(t *testing.T) {
 	provider := CodexProvider{}
 
 	command, err := provider.BuildCommand("fix the bug", BuildOptions{
-		Model:        "gpt-5-codex",
-		AddDirs:      []string{"/tmp/gitdir"},
-		ProviderArgs: []string{"--profile", "ci"},
+		Model:           "gpt-5-codex",
+		AddDirs:         []string{"/tmp/gitdir"},
+		ImagePaths:      []string{"/tmp/screenshot.png"},
+		PromptTransport: PromptTransportStdin,
+		ProviderArgs:    []string{"--profile", "ci"},
 	})
 	if err != nil {
 		t.Fatalf("BuildCommand returned error: %v", err)
@@ -115,11 +121,14 @@ func TestCodexProviderBuildCommand(t *testing.T) {
 	if !strings.Contains(joined, "--add-dir /tmp/gitdir") {
 		t.Fatalf("expected add-dir flag, got: %q", joined)
 	}
+	if !strings.Contains(joined, "--image /tmp/screenshot.png") {
+		t.Fatalf("expected image flag, got: %q", joined)
+	}
 	if !strings.Contains(joined, "--profile ci") {
 		t.Fatalf("expected forwarded provider args, got: %q", joined)
 	}
-	if !strings.HasSuffix(joined, "fix the bug") {
-		t.Fatalf("expected prompt at end of command, got: %q", joined)
+	if !strings.HasSuffix(joined, " -") {
+		t.Fatalf("expected codex stdin marker at end of command, got: %q", joined)
 	}
 }
 

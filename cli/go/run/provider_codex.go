@@ -47,6 +47,12 @@ func (CodexProvider) BuildCommand(prompt string, opts BuildOptions) ([]string, e
 	if strings.TrimSpace(opts.Model) != "" {
 		command = append(command, "-m", opts.Model)
 	}
+	for _, path := range opts.ImagePaths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		command = append(command, "--image", path)
+	}
 	for _, dir := range opts.AddDirs {
 		if strings.TrimSpace(dir) == "" {
 			continue
@@ -54,7 +60,11 @@ func (CodexProvider) BuildCommand(prompt string, opts BuildOptions) ([]string, e
 		command = append(command, "--add-dir", dir)
 	}
 	command = append(command, opts.ProviderArgs...)
-	command = append(command, prompt)
+	if opts.PromptTransport == PromptTransportStdin {
+		command = append(command, "-")
+	} else {
+		command = append(command, prompt)
+	}
 	return command, nil
 }
 
