@@ -36,9 +36,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _claim_focus_task_ref(task_ref: str, apex_task_ref: Optional[str]) -> str:
+def claim_focus_task_ref(task_ref: str, apex_task_ref: Optional[str]) -> str:
     """Prefer apex_task_ref for workspace focus, falling back to the claimed task."""
     return apex_task_ref or task_ref
+
+
+def _claim_focus_task_ref(task_ref: str, apex_task_ref: Optional[str]) -> str:
+    """Backward-compatible alias for claim_focus_task_ref."""
+    return claim_focus_task_ref(task_ref, apex_task_ref)
 
 
 async def resolve_task_claim_apex(
@@ -158,20 +163,18 @@ async def upsert_claim(
             apex_task_ref,
             _now(),
         )
-
-    # Update workspace focus fields for team status display.
-    await server_db.execute(
-        """
-        UPDATE {{tables.workspaces}}
-        SET focus_task_ref = $1,
-            focus_updated_at = NOW(),
-            updated_at = NOW()
-        WHERE project_id = $2 AND workspace_id = $3
-        """,
-        _claim_focus_task_ref(task_ref, apex_task_ref),
-        UUID(project_id),
-        UUID(workspace_id),
-    )
+        await tx.execute(
+            """
+            UPDATE {{tables.workspaces}}
+            SET focus_task_ref = $1,
+                focus_updated_at = NOW(),
+                updated_at = NOW()
+            WHERE project_id = $2 AND workspace_id = $3
+            """,
+            claim_focus_task_ref(task_ref, apex_task_ref),
+            UUID(project_id),
+            UUID(workspace_id),
+        )
 
     return None
 
@@ -241,7 +244,7 @@ async def release_task_claims(
                 WHERE project_id = $2 AND workspace_id = $3
                 """,
                 (
-                    _claim_focus_task_ref(next_claim["task_ref"], next_claim["apex_task_ref"])
+                    claim_focus_task_ref(next_claim["task_ref"], next_claim["apex_task_ref"])
                     if next_claim
                     else None
                 ),

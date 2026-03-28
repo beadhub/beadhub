@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from ..claims import _claim_focus_task_ref, resolve_task_claim_apex
+from ..claims import claim_focus_task_ref, resolve_task_claim_apex
 from ..service_errors import ConflictError, NotFoundError, ValidationError
 
 _UNSET = object()
@@ -449,8 +449,8 @@ async def list_active_work(db, *, project_id: str) -> list[dict[str, Any]]:
             "claimed_at": row["claimed_at"].isoformat(),
         }
 
-    workspace_ids: list[str] = []
-    seen_workspace_ids: set[str] = set()
+    claim_workspace_ids: list[str] = []
+    seen_claim_workspace_ids: set[str] = set()
     assignee_agent_ids: list[str] = []
     seen_agent_ids: set[str] = set()
     for row in task_rows:
@@ -458,17 +458,21 @@ async def list_active_work(db, *, project_id: str) -> list[dict[str, Any]]:
         claim = latest_claim_by_ref.get(task_ref)
         if claim is not None:
             workspace_id = claim["workspace_id"]
-            if workspace_id not in seen_workspace_ids:
-                seen_workspace_ids.add(workspace_id)
-                workspace_ids.append(workspace_id)
+            if workspace_id not in seen_claim_workspace_ids:
+                seen_claim_workspace_ids.add(workspace_id)
+                claim_workspace_ids.append(workspace_id)
             continue
         assignee_agent_id = str(row["assignee_agent_id"]) if row["assignee_agent_id"] else ""
-        if assignee_agent_id and assignee_agent_id not in seen_workspace_ids:
-            seen_workspace_ids.add(assignee_agent_id)
-            workspace_ids.append(assignee_agent_id)
         if assignee_agent_id and assignee_agent_id not in seen_agent_ids:
             seen_agent_ids.add(assignee_agent_id)
             assignee_agent_ids.append(assignee_agent_id)
+
+    workspace_ids = list(claim_workspace_ids)
+    seen_workspace_ids = set(claim_workspace_ids)
+    for agent_id in assignee_agent_ids:
+        if agent_id not in seen_workspace_ids:
+            seen_workspace_ids.add(agent_id)
+            workspace_ids.append(agent_id)
 
     workspace_meta_by_id: dict[str, dict[str, Any]] = {}
     if workspace_ids:
@@ -809,7 +813,7 @@ async def update_task(
                             updated_at = $2
                         WHERE project_id = $3 AND workspace_id = $4
                         """,
-                        _claim_focus_task_ref(task_ref, apex_task_ref),
+                        claim_focus_task_ref(task_ref, apex_task_ref),
                         now,
                         UUID(project_id),
                         UUID(actor_agent_id),
