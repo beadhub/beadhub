@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
@@ -17,6 +18,7 @@ const (
 	displayLeftMargin      = 2
 	defaultDisplayWidth    = 80
 	minMarkdownRenderWidth = 24
+	assistantBulletPrefix  = "• "
 )
 
 var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -28,16 +30,17 @@ func renderAssistantText(providerName string, text string, out io.Writer, starts
 
 	switch strings.ToLower(strings.TrimSpace(providerName)) {
 	case "codex":
-		return renderCodexAssistantTextWithOptions(text, displayWidth(out), outputSupportsANSI(out), out)
+		rendered := renderCodexAssistantTextWithOptions(text, displayWidth(out), outputSupportsANSI(out), out)
+		return prefixAssistantDisplayText(rendered, startsAtLine)
 	case "claude":
-		return indentStreamingText(text, displayLeftMargin, startsAtLine)
+		return prefixAssistantDisplayText(text, startsAtLine)
 	default:
-		return text
+		return prefixAssistantDisplayText(text, startsAtLine)
 	}
 }
 
 func renderCodexAssistantText(text string, width int) string {
-	return renderCodexAssistantTextWithOptions(text, width, false, nil)
+	return prefixAssistantDisplayText(renderCodexAssistantTextWithOptions(text, width, false, nil), true)
 }
 
 func renderCodexAssistantTextWithOptions(text string, width int, supportsANSI bool, out io.Writer) string {
@@ -53,53 +56,42 @@ func renderCodexAssistantTextWithOptions(text string, width int, supportsANSI bo
 		glamour.WithPreservedNewLines(),
 	)
 	if err != nil {
-		return indentDisplayText(text, displayLeftMargin)
+		return text
 	}
 
 	rendered, err := renderer.Render(text)
 	if err != nil {
-		return indentDisplayText(text, displayLeftMargin)
+		return text
 	}
-	return indentDisplayText(trimRenderedTrailingWhitespace(rendered), displayLeftMargin)
+	return stripANSIEscapeCodes(trimRenderedTrailingWhitespace(rendered))
 }
 
-func indentDisplayText(text string, margin int) string {
-	if text == "" || margin <= 0 {
+func prefixAssistantDisplayText(text string, startsAtLine bool) string {
+	if text == "" {
 		return text
 	}
 
-	prefix := strings.Repeat(" ", margin)
-	hasTrailingNewline := strings.HasSuffix(text, "\n")
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		lines[i] = prefix + line
-	}
-	result := strings.Join(lines, "\n")
-	if hasTrailingNewline {
-		result += "\n"
-	}
-	return result
-}
-
-func indentStreamingText(text string, margin int, startsAtLine bool) string {
-	if text == "" || margin <= 0 {
-		return text
-	}
-
-	prefix := strings.Repeat(" ", margin)
+	continuation := strings.Repeat(" ", utf8.RuneCountInString(assistantBulletPrefix))
 	var out strings.Builder
 	atLineStart := startsAtLine
+	linePrefix := assistantBulletPrefix
+	if !startsAtLine {
+		linePrefix = ""
+	}
 	for _, r := range text {
 		if atLineStart && r != '\n' && r != '\r' {
-			out.WriteString(prefix)
+			if linePrefix != "" {
+				out.WriteString(linePrefix)
+			} else {
+				out.WriteString(continuation)
+			}
+			linePrefix = continuation
 			atLineStart = false
 		}
 		out.WriteRune(r)
 		if r == '\n' || r == '\r' {
 			atLineStart = true
+			linePrefix = continuation
 		}
 	}
 	return out.String()
@@ -130,15 +122,9 @@ func stripANSIEscapeCodes(s string) string {
 }
 
 func codexMarkdownStyle(supportsANSI bool, out io.Writer) ansi.StyleConfig {
-	var style ansi.StyleConfig
-	switch {
-	case !supportsANSI:
-		style = glamourstyles.NoTTYStyleConfig
-	case hasDarkBackground(out):
-		style = glamourstyles.DarkStyleConfig
-	default:
-		style = glamourstyles.LightStyleConfig
-	}
+	_ = supportsANSI
+	_ = out
+	style := glamourstyles.NoTTYStyleConfig
 
 	// Let the loop own the left gutter and spacing; remove markdown heading markers.
 	style.Document.BlockPrefix = ""
