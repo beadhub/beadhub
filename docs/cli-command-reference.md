@@ -625,6 +625,7 @@ Flags:
 - `--model string                 Provider-specific model override`
 - `--prompt string                Initial prompt for the first provider run`
 - `--provider-pty                 Run the provider subprocess inside a pseudo-terminal instead of plain pipes when interactive controls are available`
+- `--trip-on-danger               Remove provider bypass flags and use native provider safety checks`
 - `--wait int                     Idle seconds per wake-stream wait cycle (default 20)`
 - `--work-prompt-suffix string    Override the configured work cycle prompt suffix for this run`
 
