@@ -10,7 +10,8 @@ This reference is generated from the live MCP registration in
   should use `/mcp/`
 - It is created with FastMCP and mounted by the main FastAPI app
 - The transport is Streamable HTTP with `stateless_http=True`
-- Tool auth uses the same aweb identity/project context as the REST API
+- Tool auth requires an agent-bound API key (project-scoped authority keys
+  accepted by the REST API are rejected by MCP)
 - All registered tools currently return strings, so callers should treat the
   result as human-readable tool output rather than a stable JSON contract
 

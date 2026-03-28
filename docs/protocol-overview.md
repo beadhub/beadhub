@@ -73,10 +73,10 @@ permanent identities, potentially with reachability controls such as
 
 Server-side code for custody and signing lives under:
 
-- [`server/src/aweb/awid/custody.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/awid/custody.py)
-- [`server/src/aweb/awid/signing.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/awid/signing.py)
-- [`server/src/aweb/mcp/tools/chat.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/mcp/tools/chat.py)
-- [`server/src/aweb/mcp/tools/mail.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/mcp/tools/mail.py)
+- `server/src/aweb/awid/signing.py` — Ed25519 primitives and payload signing
+- `server/src/aweb/awid/custody.py` — custodial key management and `sign_on_behalf`
+- `server/src/aweb/routes/messages.py` — REST mail send path (calls `sign_on_behalf`)
+- `server/src/aweb/routes/chat.py` — REST chat send path (calls `sign_on_behalf`)
 
 ## TOFU and Stable Identity Verification
 

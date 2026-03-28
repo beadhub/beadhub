@@ -131,7 +131,9 @@ Important bootstrap rules:
 - `aw project create` is the only unauthenticated project creation flow
 - `aw init` requires project authority through `AWEB_API_KEY`
 - `aw spawn create-invite` requires an existing identity
-- `aw spawn accept-invite` requires only the invite token
+- `aw spawn accept-invite` requires the invite token; in interactive mode it
+  may also prompt for alias, name, or role. In non-interactive mode supply
+  `--alias` and `--role` explicitly if the project has defined roles
 
 ## Health Checks and Smoke Tests
 
