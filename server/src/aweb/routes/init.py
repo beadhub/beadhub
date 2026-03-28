@@ -584,13 +584,31 @@ async def create_project(
         project_slug=identity.project_slug,
         requested_namespace_slug=requested_namespace_slug,
     )
-    await ensure_server_project_row(
-        server_db=server_db,
-        aweb_db=aweb_db,
-        project_id=identity.project_id,
-        project_slug=identity.project_slug,
-        project_name=identity.project_name or "",
-    )
+    async with server_db.transaction() as tx:
+        await ensure_server_project_row(
+            server_db=tx,
+            aweb_db=aweb_db,
+            project_id=identity.project_id,
+            project_slug=identity.project_slug,
+            project_name=identity.project_name or "",
+        )
+        await tx.execute(
+            """
+            INSERT INTO {{tables.workspaces}}
+                (workspace_id, project_id, repo_id, alias, human_name, role, hostname, workspace_path, workspace_type, last_seen_at)
+            VALUES ($1, $2, NULL, $3, $4, NULL, NULL, NULL, 'manual', NOW())
+            ON CONFLICT (workspace_id) DO UPDATE SET
+                human_name = EXCLUDED.human_name,
+                deleted_at = NULL,
+                workspace_type = 'manual',
+                last_seen_at = NOW(),
+                updated_at = NOW()
+            """,
+            UUID(identity.agent_id),
+            UUID(identity.project_id),
+            identity.alias,
+            payload.human_name or "",
+        )
 
     return _build_init_response(
         request=request,
@@ -598,6 +616,8 @@ async def create_project(
         namespace_slug=namespace_slug,
         namespace_domain=namespace_domain,
         response_name=response_name,
+        workspace_id=identity.agent_id,
+        workspace_created=True,
     )
 
 

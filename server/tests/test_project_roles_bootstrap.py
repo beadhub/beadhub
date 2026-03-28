@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from aweb.coordination.routes.project_roles import roles_router
+from aweb.db import get_db_infra
+from aweb.redis_client import get_redis
+from aweb.routes.init import bootstrap_router
+from aweb.routes.reservations import router as reservations_router
+
+
+class _FakeRedis:
+    async def eval(self, _script: str, _num_keys: int, _key: str, _window_seconds: int) -> int:
+        return 1
+
+
+def _build_roles_test_app(*, aweb_db, server_db) -> FastAPI:
+    class _DbInfra:
+        is_initialized = True
+
+        def get_manager(self, name: str = "aweb"):
+            if name == "aweb":
+                return aweb_db
+            if name == "server":
+                return server_db
+            raise KeyError(name)
+
+    app = FastAPI(title="aweb roles bootstrap test")
+    app.include_router(bootstrap_router)
+    app.include_router(roles_router)
+    app.include_router(reservations_router)
+    app.dependency_overrides[get_db_infra] = lambda: _DbInfra()
+    app.dependency_overrides[get_redis] = lambda: _FakeRedis()
+    return app
+
+
+def _auth_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+@pytest.mark.asyncio
+async def test_fresh_project_bootstraps_canonical_project_roles(aweb_cloud_db):
+    server_db = aweb_cloud_db.oss_db
+
+    project_roles_exists = await server_db.fetch_value(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'server' AND table_name = 'project_roles'
+        )
+        """
+    )
+    project_policies_exists = await server_db.fetch_value(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'server' AND table_name = 'project_policies'
+        )
+        """
+    )
+    active_project_roles_id_exists = await server_db.fetch_value(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'server'
+              AND table_name = 'projects'
+              AND column_name = 'active_project_roles_id'
+        )
+        """
+    )
+    active_policy_id_exists = await server_db.fetch_value(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'server'
+              AND table_name = 'projects'
+              AND column_name = 'active_policy_id'
+        )
+        """
+    )
+
+    assert project_roles_exists is True
+    assert project_policies_exists is False
+    assert active_project_roles_id_exists is True
+    assert active_policy_id_exists is False
+
+    app = _build_roles_test_app(aweb_db=aweb_cloud_db.aweb_db, server_db=server_db)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        slug = f"roles-bootstrap-{uuid.uuid4().hex[:8]}"
+        created = await client.post(
+            "/api/v1/create-project",
+            json={
+                "project_slug": slug,
+                "namespace_slug": slug,
+                "alias": "alice",
+            },
+        )
+        assert created.status_code == 200, created.text
+        created_data = created.json()
+        api_key = created_data["api_key"]
+        assert created_data["workspace_id"] == created_data["identity_id"]
+        assert created_data["workspace_created"] is True
+
+        roles = await client.get(
+            "/v1/roles/active",
+            params={"only_selected": "false"},
+            headers=_auth_headers(api_key),
+        )
+        assert roles.status_code == 200, roles.text
+        data = roles.json()
+        assert data["project_roles_id"]
+        assert data["active_project_roles_id"] == data["project_roles_id"]
+        assert data["roles"]
+        assert "developer" in data["roles"]
+
+        acquired = await client.post(
+            "/v1/reservations",
+            headers=_auth_headers(api_key),
+            json={"resource_key": "src/app.py", "ttl_seconds": 60},
+        )
+        assert acquired.status_code == 200, acquired.text
+
+        renewed = await client.post(
+            "/v1/reservations/renew",
+            headers=_auth_headers(api_key),
+            json={"resource_key": "src/app.py", "ttl_seconds": 60},
+        )
+        assert renewed.status_code == 200, renewed.text
+
+        released = await client.post(
+            "/v1/reservations/release",
+            headers=_auth_headers(api_key),
+            json={"resource_key": "src/app.py"},
+        )
+        assert released.status_code == 200, released.text

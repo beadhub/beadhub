@@ -42,12 +42,14 @@ type WorkspaceAttachResponse struct {
 }
 
 type WorkspaceClaim struct {
-	BeadID    string  `json:"bead_id"`
-	Title     *string `json:"title,omitempty"`
-	ClaimedAt string  `json:"claimed_at"`
-	ApexID    *string `json:"apex_id,omitempty"`
-	ApexTitle *string `json:"apex_title,omitempty"`
-	ApexType  *string `json:"apex_type,omitempty"`
+	TaskRef     string  `json:"task_ref,omitempty"`
+	BeadID      string  `json:"bead_id,omitempty"`
+	Title       *string `json:"title,omitempty"`
+	ClaimedAt   string  `json:"claimed_at"`
+	ApexTaskRef *string `json:"apex_task_ref,omitempty"`
+	ApexID      *string `json:"apex_id,omitempty"`
+	ApexTitle   *string `json:"apex_title,omitempty"`
+	ApexType    *string `json:"apex_type,omitempty"`
 }
 
 type WorkspaceInfo struct {
