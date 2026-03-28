@@ -539,6 +539,7 @@ func (l *Loop) handleOutputLine(line string, presenter *presenterState, st *stat
 		presenter.lastWasText = true
 		presenter.lastWasStructured = false
 		presenter.lastTextEndedWithNewline = strings.HasSuffix(renderedText, "\n")
+		presenter.lastTextKind = DisplayKindAgentText
 	case EventToolCall:
 		st.StructuredOut = true
 		l.runPresenterEnsureStructuredSpacing(presenter)
@@ -598,6 +599,7 @@ func (l *Loop) handleRawProviderChunk(label string, chunk string, presenter *pre
 				presenter.lastWasText = true
 				presenter.lastWasStructured = false
 				presenter.lastTextEndedWithNewline = false
+				presenter.lastTextKind = kind
 			}
 			return
 		}
@@ -608,6 +610,7 @@ func (l *Loop) handleRawProviderChunk(label string, chunk string, presenter *pre
 			presenter.lastWasText = true
 			presenter.lastWasStructured = false
 			presenter.lastTextEndedWithNewline = true
+			presenter.lastTextKind = kind
 		}
 		chunk = chunk[newline+1:]
 	}
@@ -636,11 +639,20 @@ func (l *Loop) runPresenterEnsureStructuredSpacing(presenter *presenterState) {
 		return
 	}
 	if presenter.lastWasText {
-		if !presenter.lastTextEndedWithNewline {
-			l.print("\n")
+		if l.screen() != nil {
+			if !presenter.lastTextEndedWithNewline {
+				l.displayText(presenter.lastTextKind, "\n")
+			}
+		} else {
+			if presenter.lastTextEndedWithNewline {
+				l.print("\n")
+			} else {
+				l.print("\n\n")
+			}
 		}
 		presenter.lastWasText = false
 		presenter.lastTextEndedWithNewline = false
+		presenter.lastTextKind = ""
 	}
 }
 
