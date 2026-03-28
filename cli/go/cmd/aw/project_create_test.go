@@ -284,6 +284,226 @@ func TestAwProjectCreateSupportsSeparateNamespaceSlug(t *testing.T) {
 	}
 }
 
+func TestAwProjectCreateWithExplicitRoleAttachesRepoContext(t *testing.T) {
+	t.Parallel()
+
+	const origin = "https://github.com/acme/repo.git"
+
+	var registerRole string
+	var registerOrigin string
+	var attachCalls int
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agents/suggest-alias-prefix":
+			_ = json.NewEncoder(w).Encode(map[string]any{"name_prefix": "alice", "roles": []string{}})
+		case "/api/v1/create-project":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_id":     "proj-1",
+				"project_slug":   "demo",
+				"namespace_slug": "demo",
+				"identity_id":    "identity-1",
+				"alias":          "alice",
+				"address":        "demo/alice",
+				"api_key":        "aw_sk_headless_test",
+				"did":            "did:key:z6MkTest",
+				"stable_id":      "stable-1",
+				"custody":        "self",
+				"lifetime":       "ephemeral",
+				"created":        true,
+			})
+		case "/v1/roles/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_roles_id": "roles-1",
+				"roles": map[string]any{
+					"developer": map[string]any{"title": "Developer"},
+					"reviewer":  map[string]any{"title": "Reviewer"},
+				},
+			})
+		case "/v1/workspaces/register":
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode register request: %v", err)
+			}
+			registerRole, _ = req["role"].(string)
+			registerOrigin, _ = req["repo_origin"].(string)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspace_id":     "ws-1",
+				"project_id":       "proj-1",
+				"project_slug":     "demo",
+				"repo_id":          "repo-1",
+				"canonical_origin": "github.com/acme/repo",
+				"alias":            "alice",
+				"human_name":       "Alice",
+				"created":          true,
+			})
+		case "/v1/workspaces/attach":
+			attachCalls++
+			t.Fatalf("unexpected local attach for repo-backed project create")
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepoWithOrigin(t, repo, origin)
+	buildAwBinary(t, ctx, bin)
+
+	run := exec.CommandContext(ctx, bin, "project", "create",
+		"--server-url", server.URL,
+		"--project", "demo",
+		"--alias", "alice",
+		"--role", "developer",
+		"--json",
+		"--print-exports=false",
+	)
+	run.Stdin = strings.NewReader("")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_API_KEY=",
+		"AWEB_URL=",
+	)
+	run.Dir = repo
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(extractJSON(t, out), &resp); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, string(out))
+	}
+	if resp["alias"] != "alice" {
+		t.Fatalf("alias=%v", resp["alias"])
+	}
+	if registerRole != "developer" {
+		t.Fatalf("register role=%q", registerRole)
+	}
+	if registerOrigin != origin {
+		t.Fatalf("register origin=%q", registerOrigin)
+	}
+	if attachCalls != 0 {
+		t.Fatalf("attach calls=%d", attachCalls)
+	}
+
+	data, err := os.ReadFile(filepath.Join(repo, ".aw", "workspace.yaml"))
+	if err != nil {
+		t.Fatalf("read workspace state: %v", err)
+	}
+	var state awconfig.WorktreeWorkspace
+	if err := yaml.Unmarshal(data, &state); err != nil {
+		t.Fatalf("unmarshal workspace state: %v", err)
+	}
+	if state.Role != "developer" {
+		t.Fatalf("role=%q", state.Role)
+	}
+	if state.CanonicalOrigin != "github.com/acme/repo" {
+		t.Fatalf("canonical_origin=%q", state.CanonicalOrigin)
+	}
+}
+
+func TestAwProjectCreateWithoutRolesAllowsLocalAttach(t *testing.T) {
+	t.Parallel()
+
+	var attachCalls int
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agents/suggest-alias-prefix":
+			_ = json.NewEncoder(w).Encode(map[string]any{"name_prefix": "alice", "roles": []string{}})
+		case "/api/v1/create-project":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_id":     "proj-1",
+				"project_slug":   "demo",
+				"namespace_slug": "demo",
+				"identity_id":    "identity-1",
+				"alias":          "alice",
+				"address":        "demo/alice",
+				"api_key":        "aw_sk_headless_test",
+				"did":            "did:key:z6MkTest",
+				"stable_id":      "stable-1",
+				"custody":        "self",
+				"lifetime":       "ephemeral",
+				"created":        true,
+			})
+		case "/v1/roles/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_roles_id": "roles-1",
+				"roles":            map[string]any{},
+			})
+		case "/v1/workspaces/attach":
+			attachCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspace_id":    "ws-1",
+				"project_id":      "proj-1",
+				"project_slug":    "demo",
+				"alias":           "alice",
+				"human_name":      "Alice",
+				"attachment_type": "local_dir",
+				"created":         true,
+			})
+		case "/v1/workspaces/register":
+			t.Fatalf("unexpected repo registration for non-repo project create")
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	run := exec.CommandContext(ctx, bin, "project", "create",
+		"--server-url", server.URL,
+		"--project", "demo",
+		"--alias", "alice",
+		"--json",
+		"--print-exports=false",
+	)
+	run.Stdin = strings.NewReader("")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_API_KEY=",
+		"AWEB_URL=",
+	)
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(extractJSON(t, out), &resp); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, string(out))
+	}
+	if resp["alias"] != "alice" {
+		t.Fatalf("alias=%v", resp["alias"])
+	}
+	if attachCalls != 1 {
+		t.Fatalf("attach calls=%d, want 1", attachCalls)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".aw", "context")); err != nil {
+		t.Fatalf("expected .aw/context: %v", err)
+	}
+}
+
 func TestAwInitPermanentRequestsPersistentIdentity(t *testing.T) {
 	t.Parallel()
 

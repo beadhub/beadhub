@@ -2824,6 +2824,166 @@ func TestAwInitProjectKeyNonRepoDoesNotRequireRoleForLocalAttach(t *testing.T) {
 	}
 }
 
+func TestAwInitProjectKeyWithExplicitRoleAttachesLocalDir(t *testing.T) {
+	t.Parallel()
+
+	var attachCalls int
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agents/suggest-alias-prefix":
+			_ = json.NewEncoder(w).Encode(map[string]any{"name_prefix": "alice", "roles": []string{"developer", "reviewer"}})
+		case "/v1/workspaces/init":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":         "ok",
+				"project_id":     "proj-1",
+				"project_slug":   "demo",
+				"namespace_slug": "demo",
+				"identity_id":    "identity-new",
+				"alias":          "alice",
+				"api_key":        "aw_sk_new",
+				"created":        true,
+				"did":            "did:key:z6MkTest",
+				"custody":        "self",
+				"lifetime":       "ephemeral",
+			})
+		case "/v1/roles/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_roles_id": "pol-1",
+				"roles": map[string]any{
+					"developer": map[string]any{"title": "Developer"},
+					"reviewer":  map[string]any{"title": "Reviewer"},
+				},
+			})
+		case "/v1/workspaces/attach":
+			attachCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspace_id":    "11111111-1111-1111-1111-111111111111",
+				"project_id":      "proj-1",
+				"project_slug":    "demo",
+				"alias":           "alice",
+				"human_name":      "Alice",
+				"attachment_type": "local_dir",
+				"created":         true,
+			})
+		case "/v1/workspaces/register":
+			t.Fatalf("unexpected repo register for non-repo init")
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	run := exec.CommandContext(ctx, bin, "init",
+		"--server-url", server.URL,
+		"--alias", "alice",
+		"--role", "developer",
+		"--json",
+	)
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_URL=",
+		"AWEB_API_KEY=aw_sk_project",
+	)
+	run.Stdin = strings.NewReader("")
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+	if attachCalls != 1 {
+		t.Fatalf("attach calls=%d, want 1", attachCalls)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(extractJSON(t, out), &resp); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, string(out))
+	}
+	if resp["alias"] != "alice" {
+		t.Fatalf("alias=%v", resp["alias"])
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".aw", "context")); err != nil {
+		t.Fatalf("expected .aw/context: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".aw", "workspace.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("workspace.yaml should not be kept for local attach, err=%v", err)
+	}
+}
+
+func TestAwConnectInRepoWritesContextInRepo(t *testing.T) {
+	t.Parallel()
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/introspect":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_id":     "proj-123",
+				"identity_id":    "agent-1",
+				"namespace_slug": "myco",
+				"address":        "myco/alice",
+				"alias":          "alice",
+				"agent_type":     "agent",
+			})
+		case "/v1/agents/resolve/alice":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"did":       "did:key:z6MkConnectRepo",
+				"stable_id": "did:aw:connect-repo",
+				"address":   "myco/alice",
+				"custody":   "custodial",
+				"lifetime":  "persistent",
+			})
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepoWithOrigin(t, repo, "https://github.com/acme/repo.git")
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	if err := os.WriteFile(cfgPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	run := exec.CommandContext(ctx, bin, "connect")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_URL="+server.URL,
+		"AWEB_API_KEY=aw_sk_test",
+	)
+	run.Dir = repo
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Imported identity context for myco/alice") {
+		t.Fatalf("unexpected output:\n%s", string(out))
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".aw", "context")); err != nil {
+		t.Fatalf("expected .aw/context in repo: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".aw", "context")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected parent .aw/context, err=%v", err)
+	}
+}
+
 func TestAwInitProjectKeyPermanentRequestsPersistentIdentity(t *testing.T) {
 	t.Parallel()
 

@@ -108,6 +108,14 @@ run_aw() {
   bash -c 'cd "$1" && shift && exec "$@"' _ "$E2E_CWD" "$CLI_DIR/aw" "$@"
 }
 
+run_aw_in() {
+  local workdir="$1"
+  shift
+  HOME="$E2E_HOME" \
+  AW_CONFIG_PATH="$E2E_HOME/.config/aw/config.yaml" \
+  bash -c 'cd "$1" && shift && exec "$@"' _ "$workdir" "$CLI_DIR/aw" "$@"
+}
+
 jq_field() {
   python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))"
 }
@@ -262,9 +270,49 @@ assert_not_empty "reviewer api_key" "$REVIEWER_KEY"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Phase 7: Mail send and receive
+# Phase 7: workspace add-worktree
 # ---------------------------------------------------------------------------
-echo "=== Phase 7: Alice sends mail to bob ==="
+echo "=== Phase 7: workspace add-worktree ==="
+
+REPO_DIR="$E2E_CWD/repo"
+CHILD_ALIAS="reviewer-wt"
+CHILD_DIR="$E2E_CWD/repo-$CHILD_ALIAS"
+mkdir -p "$REPO_DIR"
+git -C "$REPO_DIR" init >/dev/null 2>&1
+git -C "$REPO_DIR" config user.email e2e@example.com
+git -C "$REPO_DIR" config user.name "E2E User"
+git -C "$REPO_DIR" remote add origin https://github.com/awebai/e2e-journey.git
+printf "# e2e repo\n" > "$REPO_DIR/README.md"
+git -C "$REPO_DIR" add README.md
+git -C "$REPO_DIR" commit -m "Initial commit" >/dev/null 2>&1
+
+AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw_in "$REPO_DIR" connect 2>/dev/null
+((pass++))
+echo "  PASS: repo workspace connected"
+
+worktree_out="$(run_aw_in "$REPO_DIR" workspace add-worktree developer --alias "$CHILD_ALIAS" --json 2>/dev/null)"
+worktree_path="$(echo "$worktree_out" | jq_field worktree_path)"
+worktree_role="$(echo "$worktree_out" | jq_field role)"
+assert_eq "add-worktree path" "$CHILD_DIR" "$worktree_path"
+assert_eq "add-worktree role" "developer" "$worktree_role"
+
+child_status="$(run_aw_in "$CHILD_DIR" workspace status 2>/dev/null)"
+if echo "$child_status" | grep -q "$CHILD_ALIAS"; then
+  echo "  PASS: child workspace registered"
+  ((pass++))
+else
+  echo "  FAIL: child workspace status missing alias (output: ${child_status:0:160})"
+  ((fail++))
+fi
+
+git -C "$REPO_DIR" worktree remove --force "$CHILD_DIR" >/dev/null 2>&1 || true
+git -C "$REPO_DIR" branch -D "$CHILD_ALIAS" >/dev/null 2>&1 || true
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 8: Mail send and receive
+# ---------------------------------------------------------------------------
+echo "=== Phase 8: Alice sends mail to bob ==="
 
 AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw mail send \
   --to bob \
@@ -288,7 +336,7 @@ assert_eq "signature verified" "verified" "$bob_msg_verified"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Phase 8: Mail ack
+# Phase 9: Mail ack
 # ---------------------------------------------------------------------------
 echo "=== Phase 9: Bob acks the message ==="
 
@@ -302,7 +350,7 @@ assert_eq "bob unread inbox empty" "0" "$bob_unread_count"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Phase 9: Cross-identity messaging (reviewer -> alice)
+# Phase 10: Cross-identity messaging (reviewer -> alice)
 # ---------------------------------------------------------------------------
 echo "=== Phase 10: Reviewer (from spawn) sends mail to alice ==="
 
@@ -318,7 +366,7 @@ assert_eq "message from reviewer" "reviewer" "$alice_msg_from"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Phase 10: Bob replies to alice
+# Phase 11: Bob replies to alice
 # ---------------------------------------------------------------------------
 echo "=== Phase 11: Bob replies to alice ==="
 
@@ -432,8 +480,8 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "=== Phase 16: roles + work ==="
 
-roles_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw roles show --json 2>/dev/null)"
-if [[ $? -eq 0 && -n "$roles_out" ]]; then
+roles_show_out="$(AWEB_URL="$SERVER_URL" AWEB_API_KEY="$ALICE_KEY" run_aw roles show --json 2>/dev/null)"
+if [[ $? -eq 0 && -n "$roles_show_out" ]]; then
   echo "  PASS: roles show"
   ((pass++))
 else
