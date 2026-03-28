@@ -42,7 +42,6 @@ def claim_focus_task_ref(task_ref: str, apex_task_ref: Optional[str]) -> str:
 
 
 def _claim_focus_task_ref(task_ref: str, apex_task_ref: Optional[str]) -> str:
-    """Backward-compatible alias for claim_focus_task_ref."""
     return claim_focus_task_ref(task_ref, apex_task_ref)
 
 
@@ -52,9 +51,10 @@ async def resolve_task_claim_apex(
     task_ref: str,
     max_depth: int = 20,
 ) -> Optional[str]:
-    """Walk native tasks parent_task_id chain to find the root task ref.
+    """Walk native tasks parent_task_id chain to find the sticky focus apex.
 
-    Returns the root task ref, or ``None`` if the task cannot be resolved.
+    Prefer the highest epic ancestor when one exists. Otherwise fall back to
+    the root task ref so non-epic task trees still have a stable apex.
     """
     server_db = db_infra.get_manager("server")
 
@@ -75,7 +75,7 @@ async def resolve_task_claim_apex(
 
     current = await server_db.fetch_one(
         """
-        SELECT task_id, task_ref_suffix, parent_task_id
+        SELECT task_id, task_ref_suffix, parent_task_id, task_type
         FROM {{tables.tasks}}
         WHERE project_id = $1 AND task_ref_suffix = $2 AND deleted_at IS NULL
         """,
@@ -85,12 +85,16 @@ async def resolve_task_claim_apex(
     if not current:
         return None
 
+    epic_ref: Optional[str] = None
+    if (current.get("task_type") or "").strip().lower() == "epic":
+        epic_ref = f"{slug}-{current['task_ref_suffix']}"
+
     # Walk parent chain to root
     depth = 0
     while current.get("parent_task_id") and depth < max_depth:
         parent = await server_db.fetch_one(
             """
-            SELECT task_id, task_ref_suffix, parent_task_id
+            SELECT task_id, task_ref_suffix, parent_task_id, task_type
             FROM {{tables.tasks}}
             WHERE task_id = $1 AND deleted_at IS NULL
             """,
@@ -99,9 +103,35 @@ async def resolve_task_claim_apex(
         if not parent:
             break
         current = parent
+        if (current.get("task_type") or "").strip().lower() == "epic":
+            epic_ref = f"{slug}-{current['task_ref_suffix']}"
         depth += 1
 
-    return f"{slug}-{current['task_ref_suffix']}"
+    return epic_ref or f"{slug}-{current['task_ref_suffix']}"
+
+
+async def _is_open_task_ref(
+    tx,
+    *,
+    project_id: str,
+    task_ref: str,
+) -> bool:
+    row = await tx.fetch_one(
+        """
+        SELECT t.status
+        FROM {{tables.tasks}} t
+        JOIN {{tables.projects}} p ON p.id = t.project_id AND p.deleted_at IS NULL
+        WHERE t.project_id = $1
+          AND p.slug || '-' || t.task_ref_suffix = $2
+          AND t.deleted_at IS NULL
+        LIMIT 1
+        """,
+        UUID(project_id),
+        task_ref,
+    )
+    if not row:
+        return False
+    return (row["status"] or "").strip().lower() != "closed"
 
 
 async def upsert_claim(
@@ -198,31 +228,40 @@ async def release_task_claims(
     """
     server_db = db_infra.get_manager("server")
     async with server_db.transaction() as tx:
-        # Find affected workspaces before deleting.
+        released_focus_by_workspace: dict[str, str] = {}
         if workspace_id:
-            affected_ws_ids = [UUID(workspace_id)]
-            await tx.execute(
+            released_rows = await tx.fetch_all(
                 """
                 DELETE FROM {{tables.task_claims}}
                 WHERE project_id = $1 AND workspace_id = $2 AND task_ref = $3
+                RETURNING workspace_id, task_ref, apex_task_ref
                 """,
                 UUID(project_id),
                 UUID(workspace_id),
                 task_ref,
             )
+            affected_ws_ids = [row["workspace_id"] for row in released_rows]
         else:
-            rows = await tx.fetch_all(
+            released_rows = await tx.fetch_all(
                 """
                 DELETE FROM {{tables.task_claims}}
                 WHERE project_id = $1 AND task_ref = $2
-                RETURNING workspace_id
+                RETURNING workspace_id, task_ref, apex_task_ref
                 """,
                 UUID(project_id),
                 task_ref,
             )
-            affected_ws_ids = [row["workspace_id"] for row in rows]
+            affected_ws_ids = [row["workspace_id"] for row in released_rows]
+
+        for row in released_rows:
+            released_focus_by_workspace[str(row["workspace_id"])] = claim_focus_task_ref(
+                row["task_ref"],
+                row["apex_task_ref"],
+            )
 
         # Update each affected workspace's focus to its next active claim.
+        # If no claims remain, preserve the released apex/task as sticky focus
+        # while that focus task is still open.
         for ws_id in affected_ws_ids:
             next_claim = await tx.fetch_one(
                 """
@@ -235,6 +274,17 @@ async def release_task_claims(
                 UUID(project_id),
                 ws_id,
             )
+            next_focus = None
+            if next_claim:
+                next_focus = claim_focus_task_ref(next_claim["task_ref"], next_claim["apex_task_ref"])
+            else:
+                released_focus = released_focus_by_workspace.get(str(ws_id))
+                if released_focus and await _is_open_task_ref(
+                    tx,
+                    project_id=project_id,
+                    task_ref=released_focus,
+                ):
+                    next_focus = released_focus
             await tx.execute(
                 """
                 UPDATE {{tables.workspaces}}
@@ -243,11 +293,7 @@ async def release_task_claims(
                     updated_at = NOW()
                 WHERE project_id = $2 AND workspace_id = $3
                 """,
-                (
-                    claim_focus_task_ref(next_claim["task_ref"], next_claim["apex_task_ref"])
-                    if next_claim
-                    else None
-                ),
+                next_focus,
                 UUID(project_id),
                 ws_id,
             )

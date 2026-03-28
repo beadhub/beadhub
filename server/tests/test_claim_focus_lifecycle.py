@@ -68,13 +68,14 @@ async def _insert_task(
     title: str,
     parent_task_id: uuid.UUID | None = None,
     status: str = "open",
+    task_type: str = "task",
 ) -> None:
     await server_db.execute(
         """
         INSERT INTO {{tables.tasks}}
             (task_id, project_id, task_number, root_task_seq, task_ref_suffix, title, status, priority, task_type,
              parent_task_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 'task', $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9)
         """,
         task_id,
         project_id,
@@ -83,6 +84,7 @@ async def _insert_task(
         task_ref_suffix,
         title,
         status,
+        task_type,
         parent_task_id,
     )
 
@@ -130,6 +132,7 @@ async def test_upsert_claim_sets_workspace_focus_to_apex_task(aweb_cloud_db):
         root_task_seq=1,
         task_ref_suffix="aaaa",
         title="Parent task",
+        task_type="epic",
     )
     await _insert_task(
         server_db,
@@ -232,6 +235,112 @@ async def test_release_task_claims_restores_next_claim_focus(aweb_cloud_db):
         await _fetch_workspace_focus(server_db, project_id=project_id, workspace_id=workspace_id)
         == "aweb-aaab"
     )
+
+
+@pytest.mark.asyncio
+async def test_release_task_claims_keeps_focus_on_open_apex_without_other_claims(aweb_cloud_db):
+    server_db = aweb_cloud_db.oss_db
+    db = _DbInfra(server_db=server_db, aweb_db=aweb_cloud_db.aweb_db)
+    project_id, repo_id = await _seed_project(server_db)
+    workspace_id = await _seed_workspace(server_db, project_id=project_id, repo_id=repo_id)
+
+    epic_task_id = uuid.uuid4()
+    child_task_id = uuid.uuid4()
+    await _insert_task(
+        server_db,
+        task_id=epic_task_id,
+        project_id=project_id,
+        task_number=1,
+        root_task_seq=1,
+        task_ref_suffix="aaay",
+        title="Fix e2e user journey failures",
+        task_type="epic",
+    )
+    await _insert_task(
+        server_db,
+        task_id=child_task_id,
+        project_id=project_id,
+        task_number=2,
+        root_task_seq=1,
+        task_ref_suffix="aaal",
+        title="aw spawn accept-invite stays interactive",
+        parent_task_id=epic_task_id,
+    )
+
+    await upsert_claim(
+        db,
+        project_id=str(project_id),
+        workspace_id=str(workspace_id),
+        alias="eve",
+        human_name="Eve",
+        task_ref="aweb-aaal",
+    )
+
+    await release_task_claims(
+        db,
+        project_id=str(project_id),
+        task_ref="aweb-aaal",
+        workspace_id=str(workspace_id),
+    )
+
+    assert (
+        await _fetch_workspace_focus(server_db, project_id=project_id, workspace_id=workspace_id)
+        == "aweb-aaay"
+    )
+
+
+@pytest.mark.asyncio
+async def test_release_task_claims_clears_focus_when_apex_is_closed(aweb_cloud_db):
+    server_db = aweb_cloud_db.oss_db
+    db = _DbInfra(server_db=server_db, aweb_db=aweb_cloud_db.aweb_db)
+    project_id, repo_id = await _seed_project(server_db)
+    workspace_id = await _seed_workspace(server_db, project_id=project_id, repo_id=repo_id)
+
+    epic_task_id = uuid.uuid4()
+    child_task_id = uuid.uuid4()
+    await _insert_task(
+        server_db,
+        task_id=epic_task_id,
+        project_id=project_id,
+        task_number=1,
+        root_task_seq=1,
+        task_ref_suffix="aaay",
+        title="Fix e2e user journey failures",
+        task_type="epic",
+        status="closed",
+    )
+    await _insert_task(
+        server_db,
+        task_id=child_task_id,
+        project_id=project_id,
+        task_number=2,
+        root_task_seq=1,
+        task_ref_suffix="aaal",
+        title="aw spawn accept-invite stays interactive",
+        parent_task_id=epic_task_id,
+    )
+
+    await upsert_claim(
+        db,
+        project_id=str(project_id),
+        workspace_id=str(workspace_id),
+        alias="eve",
+        human_name="Eve",
+        task_ref="aweb-aaal",
+    )
+
+    await release_task_claims(
+        db,
+        project_id=str(project_id),
+        task_ref="aweb-aaal",
+        workspace_id=str(workspace_id),
+    )
+
+    assert await _fetch_workspace_focus(
+        server_db,
+        project_id=project_id,
+        workspace_id=workspace_id,
+    ) is None
 
 
 @pytest.mark.asyncio

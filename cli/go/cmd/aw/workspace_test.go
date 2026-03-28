@@ -341,7 +341,7 @@ func TestAwWorkspaceStatusShowsTeamState(t *testing.T) {
 						"apex_title":       "Restore rich coordination status",
 						"apex_type":        "epic",
 						"claims": []map[string]any{
-							{"bead_id": "TASK-001", "title": "Own task", "claimed_at": "2026-03-10T10:00:00Z"},
+							{"task_ref": "TASK-001", "title": "Own task", "claimed_at": "2026-03-10T10:00:00Z"},
 						},
 					},
 					{
@@ -354,13 +354,13 @@ func TestAwWorkspaceStatusShowsTeamState(t *testing.T) {
 						"workspace_path":   "/Users/bob/repo-other",
 						"repo":             "github.com/acme/other",
 						"branch":           "review-branch",
-						"focus_task_ref":   "TASK-002",
-						"focus_task_title": "Peer task",
+						"focus_task_ref":   "TASK-900",
+						"focus_task_title": "Review release",
 						"apex_id":          "TASK-900",
 						"apex_title":       "Review release",
 						"apex_type":        "task",
 						"claims": []map[string]any{
-							{"bead_id": "TASK-002", "title": "Peer task", "claimed_at": "2026-03-10T10:01:00Z"},
+							{"task_ref": "TASK-002", "title": "Peer task", "claimed_at": "2026-03-10T10:01:00Z"},
 						},
 					},
 				},
@@ -466,7 +466,7 @@ default_account: acct
 		"- Context: repo_worktree",
 		"- Repo: github.com/acme/repo",
 		"- Branch: main",
-		"- Focus: aweb-aaaa (Restore rich coordination status)",
+		"- Focus: aweb-aaaa \"Restore rich coordination status\"",
 		"- Epic: AWEB-AAAA (Restore rich coordination status)",
 		"- Claims: TASK-001 \"Own task\" (",
 		"[stale]",
@@ -475,7 +475,7 @@ default_account: acct
 		"bob (reviewer) — idle, seen ",
 		"Host: reviewbox  Path: /Users/bob/repo-other",
 		"Repo: github.com/acme/other  Branch: review-branch",
-		"Focus: TASK-002 (Peer task)",
+		"Focus: TASK-900 \"Review release\"",
 		"Working on: TASK-900 (Review release)",
 		"Claims: TASK-002 \"Peer task\" (",
 		"Locks: src/review.go (TTL:",
@@ -517,7 +517,7 @@ func TestAwWorkspaceStatusWithoutLocalWorkspaceShowsAgentContext(t *testing.T) {
 						"apex_title":   "Release coordination",
 						"apex_type":    "epic",
 						"claims": []map[string]any{
-							{"bead_id": "TASK-100", "title": "Coordinate release", "claimed_at": "2026-03-10T10:01:00Z"},
+							{"task_ref": "TASK-100", "title": "Coordinate release", "claimed_at": "2026-03-10T10:01:00Z"},
 						},
 					},
 					{

@@ -1018,7 +1018,7 @@ func formatWorkspaceFocus(workspace aweb.WorkspaceInfo) string {
 		return "none"
 	}
 	if focusTitle := strings.TrimSpace(derefString(workspace.FocusTaskTitle)); focusTitle != "" {
-		return fmt.Sprintf("%s (%s)", focusRef, focusTitle)
+		return fmt.Sprintf("%s \"%s\"", focusRef, focusTitle)
 	}
 	return focusRef
 }
@@ -1044,7 +1044,10 @@ func formatWorkspaceClaimsSummary(claims []aweb.WorkspaceClaim) string {
 	}
 	parts := make([]string, 0, len(claims))
 	for _, claim := range claims {
-		part := claim.BeadID
+		part := strings.TrimSpace(claim.TaskRef)
+		if part == "" {
+			part = strings.TrimSpace(claim.BeadID)
+		}
 		if title := strings.TrimSpace(derefString(claim.Title)); title != "" {
 			part += fmt.Sprintf(" \"%s\"", title)
 		}
