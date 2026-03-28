@@ -86,7 +86,7 @@ func TestAwWorkspaceInitWritesWorkspaceState(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -247,7 +247,7 @@ func TestAwInitAutoAttachesRepoContext(t *testing.T) {
 				"human_name":       "Alice",
 				"created":          true,
 			})
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -1274,7 +1274,7 @@ func TestAwWorkspaceAddWorktreeCreatesSiblingWorktree(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -1482,7 +1482,7 @@ func TestAwWorkspaceAddWorktreeRequiresRoleInNonTTYMode(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -1560,7 +1560,7 @@ func TestAwWorkspaceAddWorktreeRejectsInvalidExplicitAlias(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -1674,7 +1674,7 @@ func TestAwWorkspaceAddWorktreeExplicitAliasCreatesSiblingWorktree(t *testing.T)
 				"human_name":       "Wendy",
 				"created":          true,
 			})
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -1763,7 +1763,7 @@ func TestAwWorkspaceAddWorktreeCleansUpOnInitFailure(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
@@ -1874,7 +1874,7 @@ func TestAwWorkspaceAddWorktreeRetriesAliasTakenSuggestion(t *testing.T) {
 
 	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/policies/active":
+		case "/v1/roles/active":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"policy_id": "pol-1",
 				"roles": map[string]any{
