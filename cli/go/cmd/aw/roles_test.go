@@ -30,10 +30,8 @@ func TestAwRolesShowUsesWorkspaceRoleName(t *testing.T) {
 				t.Fatalf("only_selected=%q", r.URL.Query().Get("only_selected"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"project_roles_id":        "pol-1",
-				"policy_id":               "pol-1",
-				"active_project_roles_id": "pol-1",
-				"active_policy_id":        "pol-1",
+				"project_roles_id":        "roles-1",
+				"active_project_roles_id": "roles-1",
 				"project_id":              "proj-1",
 				"version":                 3,
 				"updated_at":              "2026-03-10T10:00:00Z",
@@ -113,7 +111,7 @@ default_account: acct
 		"Review before merge.",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("policy show output missing %q:\n%s", want, text)
+			t.Fatalf("roles show output missing %q:\n%s", want, text)
 		}
 	}
 }
@@ -131,8 +129,7 @@ func TestAwRolesListListsSortedRoles(t *testing.T) {
 				t.Fatalf("only_selected=%q", r.URL.Query().Get("only_selected"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"project_roles_id": "pol-1",
-				"policy_id":        "pol-1",
+				"project_roles_id": "roles-1",
 				"project_id":       "proj-1",
 				"version":          1,
 				"updated_at":       "2026-03-10T10:00:00Z",

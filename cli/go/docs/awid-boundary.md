@@ -13,7 +13,7 @@ It owns everything needed for an agent to exist, communicate, and run
 without coordination infrastructure.
 
 **aw** is the coordination application. It uses awid as a library and
-adds workspace management, task dispatch, policy, and claims.
+adds workspace management, task dispatch, project roles, and claims.
 
 The boundary test: "Can an agent that only depends on awid initialize an
 identity, send mail, receive chat, run a provider loop, and respond to control
@@ -77,7 +77,7 @@ implementation of aw-9sf.2.
 |------|--------|---------------|
 | `coordination.go` | Coordination status | `GET /v1/status` |
 | `workspaces.go` | Workspace management | `POST /v1/workspaces/register`, `/attach`, `GET /v1/workspaces/team` |
-| `policies.go` | Policy retrieval | `GET /v1/policies/active` |
+| `project roles transport` | Project roles retrieval | `GET /v1/roles/active` |
 | `projects.go` | Project info | `GET /v1/projects/current` |
 | `claims.go` | Bead claims | `GET /v1/claims` |
 | `tasks.go` | Task CRUD | `GET/POST/PATCH/DELETE /v1/tasks/*` |
@@ -189,7 +189,7 @@ delegate to the awid library.
 | File | Commands |
 |------|----------|
 | `workspace.go` | `aw workspace *` |
-| `policy.go` | `aw policy *` |
+| `roles.go` | `aw roles *`, `aw role-name *` |
 | `project.go` | `aw project *` |
 | `work.go` | `aw work *` |
 | `lock.go` | `aw lock *` |
@@ -198,7 +198,7 @@ delegate to the awid library.
 
 | File | Commands |
 |------|----------|
-| `run.go` | `aw run` — wires awid runtime + aw dispatch policy |
+| `run.go` | `aw run` — wires awid runtime + aw dispatch rules |
 
 ---
 

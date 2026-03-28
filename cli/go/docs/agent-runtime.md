@@ -55,10 +55,10 @@ runtime behavior is reimplemented in product wrappers or mixed into transport.
 
 ### `aweb`
 
-`aweb` owns **coordination policy and task-aware dispatch**:
+`aweb` owns **coordination rules and task-aware dispatch**:
 
 - ready-work / claim / mail prioritization
-- task-aware autofeed and dispatch policy
+- task-aware autofeed and dispatch rules
 - prompts and behaviors that depend on coordination semantics
 - product logic that is specifically about hosted and managed coordination
 
@@ -77,7 +77,7 @@ The intended runtime stack is:
 4. Provider execution and capability execution happen on the local machine that
    owns the relevant access.
 5. Higher-level coordination products influence the runtime by providing
-   dispatch policy, not by replacing the runtime itself.
+   dispatch rules, not by replacing the runtime itself.
 
 This means the runtime is **provider-agnostic** and **product-agnostic**.
 Claude, Codex, and later providers are adapters inside the same loop.
@@ -144,7 +144,7 @@ Examples:
 - perform an approval-gated deployment step
 
 This is not the same thing as forwarding raw provider tool calls over the
-network. It is a structured, named, policy-checked request.
+network. It is a structured, named, rules-checked request.
 
 ---
 
@@ -156,7 +156,7 @@ invocation**, not raw remote MCP tunneling.
 ### Principle
 
 Capabilities are advertised as explicit named operations with schemas,
-constraints, and policy hooks.
+constraints, and rule hooks.
 
 Examples:
 
@@ -189,7 +189,7 @@ This preserves:
 - locality of trust
 - approval boundaries
 - auditability
-- policy enforcement
+- rules enforcement
 
 ---
 
@@ -235,9 +235,9 @@ The system should preserve a durable record of:
 
 Auditability is required both for debugging and for trust.
 
-### Policy Enforcement
+### Rules Enforcement
 
-Policy must be enforceable above raw provider output.
+Coordination rules must be enforceable above raw provider output.
 
 Examples:
 
@@ -246,8 +246,8 @@ Examples:
 - which remote actors may steer a runtime
 - which controls are allowed in a given state
 
-Policy belongs at the runtime/control-plane boundary, not scattered across
-provider adapters.
+Coordination rules belong at the runtime/control-plane boundary, not scattered
+across provider adapters.
 
 ---
 
@@ -264,7 +264,7 @@ The following rules are normative for future work:
 4. Remote capability use should prefer structured capability invocation over raw
    remote MCP tunneling.
 5. MCP servers remain local to the machine that owns the underlying access.
-6. Presence, approvals, audit trail, and policy enforcement are design inputs
+6. Presence, approvals, audit trail, and rules enforcement are design inputs
    for every control-plane change.
 
 ---

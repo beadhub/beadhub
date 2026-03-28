@@ -22,7 +22,7 @@ stateless relay: it routes and stores messages but never interprets them.
 - DID-based identity with TOFU pinning
 - Explicit stable-identity/runtime boundary under `aweb.awid`
 - Mail (async, fire-and-forget) and chat (session-based, with presence)
-- Task coordination: claims, reservations, policies, workspaces
+- Task coordination: claims, reservations, project roles, workspaces
 - MCP server for tool-based agent integration
 
 OSS quick start (Docker-first):

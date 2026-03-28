@@ -26,9 +26,7 @@ type SelectedRoleInfo struct {
 
 type ActiveProjectRolesResponse struct {
 	ProjectRolesID       string                    `json:"project_roles_id"`
-	PolicyID             string                    `json:"policy_id"`
 	ActiveProjectRolesID string                    `json:"active_project_roles_id,omitempty"`
-	ActivePolicyID       string                    `json:"active_policy_id,omitempty"`
 	ProjectID            string                    `json:"project_id"`
 	Version              int                       `json:"version"`
 	UpdatedAt            string                    `json:"updated_at"`
@@ -75,14 +73,4 @@ func (c *Client) ActiveProjectRoles(ctx context.Context, params ActiveProjectRol
 		return nil, err
 	}
 	return &out, nil
-}
-
-type PolicyInvariant = ProjectRolesInvariant
-type PolicyRolePlaybook = RoleDefinition
-type PolicySelectedRole = SelectedRoleInfo
-type ActivePolicyResponse = ActiveProjectRolesResponse
-type ActivePolicyParams = ActiveProjectRolesParams
-
-func (c *Client) ActivePolicy(ctx context.Context, params ActivePolicyParams) (*ActivePolicyResponse, error) {
-	return c.ActiveProjectRoles(ctx, ActiveProjectRolesParams(params))
 }
