@@ -106,7 +106,6 @@ const (
 	DisplayKindTaskActivity   DisplayKind = "task_activity"
 	DisplayKindProviderStdout DisplayKind = "provider_stdout"
 	DisplayKindProviderStderr DisplayKind = "provider_stderr"
-	DisplayKindResult         DisplayKind = "result"
 	DisplayKindDone           DisplayKind = "done"
 	DisplayKindInfo           DisplayKind = "info"
 	DisplayKindHint           DisplayKind = "hint"
@@ -120,7 +119,11 @@ type DisplayLine struct {
 
 type ControlEventType string
 
-const DefaultInputPromptLabel = ">> "
+const (
+	DefaultInputPromptLabel = ">> "
+	primaryDisplayBullet    = "●"
+	primaryBulletPrefix     = primaryDisplayBullet + " "
+)
 
 const (
 	ControlTypingStarted  ControlEventType = "typing_started"
