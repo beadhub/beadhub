@@ -951,7 +951,9 @@ func formatWorkspaceStatus(v any) string {
 				line += ", seen " + formatTimeAgo(lastSeen)
 			}
 			sb.WriteString(line + "\n")
-			sb.WriteString(fmt.Sprintf("  %s\n", formatWorkspaceRepoBranch(workspace)))
+			if repoLine := formatWorkspaceRepoBranch(workspace); repoLine != "" {
+				sb.WriteString(fmt.Sprintf("  %s\n", repoLine))
+			}
 			sb.WriteString(fmt.Sprintf("  Focus: %s\n", formatWorkspaceFocus(workspace)))
 			sb.WriteString(fmt.Sprintf("  Claims: %s\n", formatWorkspaceClaimsSummary(workspace.Claims)))
 			sb.WriteString(fmt.Sprintf("  Locks: %s\n", formatWorkspaceLocksSummary(out.TeamLocks[workspace.WorkspaceID], now)))
@@ -976,19 +978,19 @@ func formatWorkspaceRepoBranch(workspace aweb.WorkspaceInfo) string {
 	case branch != "":
 		return fmt.Sprintf("Branch: %s", branch)
 	default:
-		return "Repo: none"
+		return ""
 	}
 }
 
 func formatWorkspaceFocus(workspace aweb.WorkspaceInfo) string {
-	focusID := strings.TrimSpace(derefString(workspace.FocusApexID))
-	if focusID == "" {
+	focusRef := strings.TrimSpace(derefString(workspace.FocusTaskRef))
+	if focusRef == "" {
 		return "none"
 	}
-	if focusTitle := strings.TrimSpace(derefString(workspace.FocusApexTitle)); focusTitle != "" {
-		return fmt.Sprintf("%s (%s)", focusID, focusTitle)
+	if focusTitle := strings.TrimSpace(derefString(workspace.FocusTaskTitle)); focusTitle != "" {
+		return fmt.Sprintf("%s (%s)", focusRef, focusTitle)
 	}
-	return focusID
+	return focusRef
 }
 
 func formatWorkspaceClaimsSummary(claims []aweb.WorkspaceClaim) string {
@@ -998,8 +1000,14 @@ func formatWorkspaceClaimsSummary(claims []aweb.WorkspaceClaim) string {
 	parts := make([]string, 0, len(claims))
 	for _, claim := range claims {
 		part := claim.BeadID
+		if title := strings.TrimSpace(derefString(claim.Title)); title != "" {
+			part += fmt.Sprintf(" \"%s\"", title)
+		}
 		if strings.TrimSpace(claim.ClaimedAt) != "" {
 			part += fmt.Sprintf(" (%s)", formatTimeAgo(claim.ClaimedAt))
+			if isClaimStale(claim.ClaimedAt) {
+				part += " [stale]"
+			}
 		}
 		parts = append(parts, part)
 	}

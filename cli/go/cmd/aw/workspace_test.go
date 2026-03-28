@@ -335,8 +335,8 @@ func TestAwWorkspaceStatusShowsTeamState(t *testing.T) {
 						"workspace_path":   "/tmp/repo",
 						"repo":             "github.com/acme/repo",
 						"branch":           "main",
-						"focus_apex_id":    "aweb-aaaa",
-						"focus_apex_title": "Restore rich coordination status",
+						"focus_task_ref":   "aweb-aaaa",
+						"focus_task_title": "Restore rich coordination status",
 						"claims": []map[string]any{
 							{"bead_id": "TASK-001", "title": "Own task", "claimed_at": "2026-03-10T10:00:00Z"},
 						},
@@ -349,8 +349,8 @@ func TestAwWorkspaceStatusShowsTeamState(t *testing.T) {
 						"last_seen":        "2026-03-10T10:05:00Z",
 						"repo":             "github.com/acme/other",
 						"branch":           "review-branch",
-						"focus_apex_id":    "TASK-002",
-						"focus_apex_title": "Peer task",
+						"focus_task_ref":   "TASK-002",
+						"focus_task_title": "Peer task",
 						"claims": []map[string]any{
 							{"bead_id": "TASK-002", "title": "Peer task", "claimed_at": "2026-03-10T10:01:00Z"},
 						},
@@ -459,13 +459,14 @@ default_account: acct
 		"- Repo: github.com/acme/repo",
 		"- Branch: main",
 		"- Focus: aweb-aaaa (Restore rich coordination status)",
-		"- Claims: TASK-001 (",
+		"- Claims: TASK-001 \"Own task\" (",
+		"[stale]",
 		"- Locks: src/main.go (TTL:",
 		"## Team",
 		"bob (reviewer) — idle, seen ",
 		"Repo: github.com/acme/other  Branch: review-branch",
 		"Focus: TASK-002 (Peer task)",
-		"Claims: TASK-002 (",
+		"Claims: TASK-002 \"Peer task\" (",
 		"Locks: src/review.go (TTL:",
 		"Escalations pending: 2",
 		"Claim conflicts: 1",
@@ -503,6 +504,12 @@ func TestAwWorkspaceStatusWithoutLocalWorkspaceShowsAgentContext(t *testing.T) {
 						"claims": []map[string]any{
 							{"bead_id": "TASK-100", "title": "Coordinate release", "claimed_at": "2026-03-10T10:01:00Z"},
 						},
+					},
+					{
+						"workspace_id": "55555555-5555-5555-5555-555555555555",
+						"alias":        "floating",
+						"status":       "idle",
+						"claims":       []map[string]any{},
 					},
 				},
 				"has_more": false,
@@ -577,13 +584,17 @@ default_account: acct
 		"reviewer-jane (coordinator) — active",
 		"Repo: github.com/acme/ac  Branch: main",
 		"Focus: none",
-		"Claims: TASK-100 (",
+		"Claims: TASK-100 \"Coordinate release\" (",
 		"Locks: none",
+		"floating — idle",
 		"Escalations pending: 1",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "floating — idle\n  Repo:") {
+		t.Fatalf("expected repo line to be omitted when repo/branch are empty:\n%s", text)
 	}
 }
 

@@ -69,11 +69,11 @@ type WorkspaceInfo struct {
 	ApexID            *string          `json:"apex_id,omitempty"`
 	ApexTitle         *string          `json:"apex_title,omitempty"`
 	ApexType          *string          `json:"apex_type,omitempty"`
-	FocusApexID       *string          `json:"focus_apex_id,omitempty"`
-	FocusApexTitle    *string          `json:"focus_apex_title,omitempty"`
-	FocusApexType     *string          `json:"focus_apex_type,omitempty"`
-	FocusApexRepoName *string          `json:"focus_apex_repo_name,omitempty"`
-	FocusApexBranch   *string          `json:"focus_apex_branch,omitempty"`
+	FocusTaskRef      *string          `json:"focus_task_ref,omitempty"`
+	FocusTaskTitle    *string          `json:"focus_task_title,omitempty"`
+	FocusTaskType     *string          `json:"focus_task_type,omitempty"`
+	FocusTaskRepoName *string          `json:"focus_task_repo_name,omitempty"`
+	FocusTaskBranch   *string          `json:"focus_task_branch,omitempty"`
 	FocusUpdatedAt    *string          `json:"focus_updated_at,omitempty"`
 	Status            string           `json:"status"`
 	LastSeen          *string          `json:"last_seen,omitempty"`
