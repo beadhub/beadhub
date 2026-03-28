@@ -18,7 +18,6 @@ func (ClaudeProvider) BuildCommand(prompt string, opts BuildOptions) ([]string, 
 	command := []string{
 		"claude",
 		"-p",
-		prompt,
 		"--dangerously-skip-permissions",
 		"--output-format",
 		"stream-json",
@@ -43,7 +42,13 @@ func (ClaudeProvider) BuildCommand(prompt string, opts BuildOptions) ([]string, 
 		}
 		command = append(command, "--add-dir", dir)
 	}
+	// The installed Claude CLI here does not support local --image attachments.
+	// Image paths are surfaced in prompt text instead, while Codex gets native
+	// --image flags through opts.ImagePaths.
 	command = append(command, opts.ProviderArgs...)
+	if opts.PromptTransport != PromptTransportStdin {
+		command = append(command, prompt)
+	}
 
 	return command, nil
 }
