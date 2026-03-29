@@ -21,8 +21,8 @@ aw mail send --to-alias <agent> --body "Review request: PR #123 ready" --subject
 ## Checking Your Inbox
 
 ```bash
-aw mail inbox --unread-only   # Show unread messages
-aw mail inbox                 # Include read messages
+aw mail inbox              # Show unread messages (default)
+aw mail inbox --show-all   # Include read messages
 ```
 
 ## Acknowledging Messages
