@@ -31,7 +31,7 @@ clean:
 	rm -rf server/.pytest_cache/
 	rm -rf server/.ruff_cache/
 	rm -f  cli/go/aw
-	rm -rf cli/go/.cache/
+	chmod -R u+w cli/go/.cache/ 2>/dev/null; rm -rf cli/go/.cache/
 	rm -rf channel/node_modules/
 	find . -type d -name __pycache__ -not -path '*/.venv/*' -not -path '*/node_modules/*' -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name playwright-report -exec rm -rf {} + 2>/dev/null || true
