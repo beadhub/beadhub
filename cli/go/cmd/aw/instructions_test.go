@@ -73,6 +73,77 @@ func TestAwInstructionsShowDisplaysActiveInstructions(t *testing.T) {
 	}
 }
 
+func TestAwInstructionsShowByIDMarksActiveVersion(t *testing.T) {
+	t.Parallel()
+
+	server := newLocalHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer aw_sk_test" {
+			t.Fatalf("auth=%q", r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/v1/instructions/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_instructions_id":        "instructions-2",
+				"active_project_instructions_id": "instructions-2",
+				"project_id":                     "proj-1",
+				"version":                        2,
+				"updated_at":                     "2026-03-11T10:00:00Z",
+				"document": map[string]any{
+					"body_md": "## Active Body\n",
+					"format":  "markdown",
+				},
+			})
+		case "/v1/instructions/instructions-2":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project_instructions_id": "instructions-2",
+				"project_id":              "proj-1",
+				"version":                 2,
+				"updated_at":              "2026-03-11T10:00:00Z",
+				"document": map[string]any{
+					"body_md": "## Active Body\n",
+					"format":  "markdown",
+				},
+			})
+		case "/v1/agents/heartbeat":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "aw")
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	buildAwBinary(t, ctx, bin)
+
+	writeTestConfig(t, cfgPath, server.URL)
+
+	run := exec.CommandContext(ctx, bin, "instructions", "show", "instructions-2")
+	run.Env = append(os.Environ(),
+		"AW_CONFIG_PATH="+cfgPath,
+		"AWEB_URL=",
+		"AWEB_API_KEY=",
+	)
+	run.Dir = tmp
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(out))
+	}
+	text := string(out)
+	for _, want := range []string{
+		"Project Instructions v2 (active)",
+		"ID: instructions-2",
+		"## Active Body",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("instructions show-by-id output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestAwInstructionsSetCreatesAndActivatesNewVersion(t *testing.T) {
 	t.Parallel()
 

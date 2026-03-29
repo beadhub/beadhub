@@ -625,7 +625,7 @@ Flags:
 
 Subcommands:
 - `list        List roles defined in the active project roles bundle`
-- `show        Show active project role guidance`
+- `show        Show role guidance from the active project roles bundle`
 
 Flags:
 - `-h, --help   help for roles`

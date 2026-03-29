@@ -97,9 +97,19 @@ func runInstructionsShow(cmd *cobra.Command, args []string) error {
 
 	requestedID := ""
 	var resp *aweb.ActiveProjectInstructionsResponse
+	isActive := true
 	if len(args) == 1 {
 		requestedID = strings.TrimSpace(args[0])
 		resp, err = client.GetProjectInstructions(ctx, requestedID)
+		if err == nil {
+			active, activeErr := client.ActiveProjectInstructions(ctx)
+			if activeErr != nil {
+				err = activeErr
+			} else {
+				isActive = requestedID == active.ProjectInstructionsID ||
+					requestedID == active.ActiveProjectInstructionsID
+			}
+		}
 	} else {
 		resp, err = client.ActiveProjectInstructions(ctx)
 	}
@@ -109,7 +119,7 @@ func runInstructionsShow(cmd *cobra.Command, args []string) error {
 
 	printOutput(projectInstructionsShowOutput{
 		RequestedID:         requestedID,
-		IsActive:            requestedID == "" || requestedID == resp.ActiveProjectInstructionsID,
+		IsActive:            isActive,
 		ProjectInstructions: resp,
 	}, formatProjectInstructionsShow)
 	return nil
