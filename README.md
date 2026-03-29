@@ -80,11 +80,15 @@ aw workspace add-worktree developer --alias agent-two
 
 **Invite a new identity** (any directory, any machine):
 
-```bash
-# In the existing workspace:
-aw spawn create-invite
+In the existing workspace, create an invite:
 
-# In the new directory (can be a different machine):
+```bash
+aw spawn create-invite
+```
+
+In the new directory (can be a different machine), accept it:
+
+```bash
 aw spawn accept-invite <token>
 ```
 
