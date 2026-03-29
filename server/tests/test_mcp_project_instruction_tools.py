@@ -97,6 +97,21 @@ async def test_mcp_instruction_tools_match_roles_only_model(aweb_cloud_db):
             project_instructions_id=second_version.project_instructions_id,
         )
 
+        explicit_rest = await client.get(
+            f"/v1/instructions/{active_data['project_instructions_id']}",
+            headers=_auth_headers(created_data["api_key"]),
+        )
+        assert explicit_rest.status_code == 200, explicit_rest.text
+        explicit_rest_data = explicit_rest.json()
+
+        history_rest = await client.get(
+            "/v1/instructions/history",
+            params={"limit": 5},
+            headers=_auth_headers(created_data["api_key"]),
+        )
+        assert history_rest.status_code == 200, history_rest.text
+        history_rest_data = history_rest.json()
+
     db_infra = _DbInfra(aweb_db=aweb_db, server_db=server_db)
     token = _auth_context.set(
         AuthContext(
@@ -124,15 +139,25 @@ async def test_mcp_instruction_tools_match_roles_only_model(aweb_cloud_db):
             )
         )
         assert explicit_payload["project_instructions_id"] == active_data["project_instructions_id"]
-        assert (
-            explicit_payload["active_project_instructions_id"]
-            == second_version.project_instructions_id
-        )
+        assert explicit_payload["active_project_instructions_id"] is None
+        assert explicit_payload["project_id"] == explicit_rest_data["project_id"]
+        assert explicit_payload["version"] == explicit_rest_data["version"]
+        assert explicit_payload["document"] == explicit_rest_data["document"]
 
         history_payload = json.loads(await instructions_history(db_infra, limit=5))
         versions = history_payload["project_instructions_versions"]
         assert [item["version"] for item in versions[:2]] == [2, 1]
         assert versions[0]["is_active"] is True
         assert versions[1]["is_active"] is False
+        assert [
+            {key: item[key] for key in ("project_instructions_id", "version", "is_active")}
+            for item in history_payload["project_instructions_versions"]
+        ] == [
+            {key: item[key] for key in ("project_instructions_id", "version", "is_active")}
+            for item in history_rest_data["project_instructions_versions"]
+        ]
+
+        missing_payload = json.loads(await instructions_show(db_infra, project_instructions_id=str(uuid.uuid4())))
+        assert missing_payload == {"error": "Project instructions not found"}
     finally:
         _auth_context.reset(token)

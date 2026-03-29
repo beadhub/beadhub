@@ -25,18 +25,13 @@ async def instructions_show(db_infra, *, project_instructions_id: str = "") -> s
         )
         if row is None:
             return json.dumps({"error": "Project instructions not found"})
-        active_version = await get_active_project_instructions(
-            server_db, auth.project_id, bootstrap_if_missing=True
-        )
         document_data = row["document_json"]
         if isinstance(document_data, str):
             document_data = json.loads(document_data)
         return json.dumps(
             {
                 "project_instructions_id": str(row["project_instructions_id"]),
-                "active_project_instructions_id": (
-                    active_version.project_instructions_id if active_version else None
-                ),
+                "active_project_instructions_id": None,
                 "project_id": str(row["project_id"]),
                 "version": row["version"],
                 "updated_at": row["updated_at"].isoformat(),
@@ -66,9 +61,19 @@ async def instructions_history(db_infra, *, limit: int = 20) -> str:
     server_db = db_infra.get_manager("server")
     limit = max(1, min(int(limit), 100))
 
-    active_version = await get_active_project_instructions(server_db, auth.project_id, bootstrap_if_missing=True)
+    await get_active_project_instructions(server_db, auth.project_id, bootstrap_if_missing=True)
+    active_result = await server_db.fetch_one(
+        """
+        SELECT active_project_instructions_id
+        FROM {{tables.projects}}
+        WHERE id = $1 AND deleted_at IS NULL
+        """,
+        auth.project_id,
+    )
     active_project_instructions_id = (
-        active_version.project_instructions_id if active_version is not None else None
+        str(active_result["active_project_instructions_id"])
+        if active_result and active_result["active_project_instructions_id"]
+        else None
     )
 
     rows = await server_db.fetch_all(
