@@ -100,7 +100,7 @@ List roles in the active project bundle:
 aw roles list
 ```
 
-Show the active invariants and guidance:
+Show the active role guidance:
 
 ```bash
 aw roles show

@@ -100,7 +100,7 @@ class ProjectInstructionsHistoryItem(BaseModel):
 
 
 class ProjectInstructionsHistoryResponse(BaseModel):
-    project_instruction_versions: List[ProjectInstructionsHistoryItem]
+    project_instructions_versions: List[ProjectInstructionsHistoryItem]
 
 
 def _normalize_document_data(document_data: Any) -> Dict[str, Any]:
@@ -402,7 +402,7 @@ async def list_project_instructions_history(
     )
 
     return ProjectInstructionsHistoryResponse(
-        project_instruction_versions=[
+        project_instructions_versions=[
             ProjectInstructionsHistoryItem(
                 project_instructions_id=str(row["project_instructions_id"]),
                 version=row["version"],

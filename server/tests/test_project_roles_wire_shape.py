@@ -113,9 +113,9 @@ def test_project_instructions_history_response_emits_instruction_versions():
         created_by_workspace_id=None,
         is_active=True,
     )
-    response = ProjectInstructionsHistoryResponse(project_instruction_versions=[item])
+    response = ProjectInstructionsHistoryResponse(project_instructions_versions=[item])
     data = response.model_dump()
     assert (
-        data["project_instruction_versions"][0]["project_instructions_id"]
+        data["project_instructions_versions"][0]["project_instructions_id"]
         == item.project_instructions_id
     )

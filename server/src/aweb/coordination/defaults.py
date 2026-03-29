@@ -52,11 +52,15 @@ def load_role(file_path: Path) -> Tuple[str, Dict[str, Any]]:
 
     role_id = frontmatter.get("id")
     title = frontmatter.get("title")
+    if role_id is None:
+        raise ValueError(f"Role file '{file_path}' is missing required 'id' field")
     if not isinstance(role_id, str):
         raise ValueError(
             f"Role file '{file_path}' has invalid 'id' field "
             f"(must be string, got {type(role_id).__name__})"
         )
+    if title is None:
+        raise ValueError(f"Role file '{file_path}' is missing required 'title' field")
     if not isinstance(title, str):
         raise ValueError(
             f"Role file '{file_path}' has invalid 'title' field "
