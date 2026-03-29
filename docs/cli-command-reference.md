@@ -10,7 +10,7 @@ This reference is derived from the live Cobra help tree generated from the
 | Workspace setup | `connect`, `init`, `project`, `reset`, `spawn`, `use`, `workspace` |
 | Identity | `claim-human`, `identities`, `identity`, `mcp-config`, `whoami` |
 | Messaging and network | `chat`, `contacts`, `control`, `directory`, `events`, `heartbeat`, `log`, `mail` |
-| Coordination and runtime | `lock`, `notify`, `role-name`, `roles`, `run`, `task`, `work` |
+| Coordination and runtime | `instructions`, `lock`, `notify`, `role-name`, `roles`, `run`, `task`, `work` |
 | Utility | `completion`, `help`, `upgrade`, `version` |
 
 ## Global flags
@@ -71,7 +71,7 @@ Flags:
 - `--alias string          Ephemeral identity routing alias (optional; default: server-suggested)`
 - `-h, --help                  help for init`
 - `--human-name string     Human name (default: AWEB_HUMAN or $USER)`
-- `--inject-docs           Inject aw coordination instructions into CLAUDE.md and AGENTS.md`
+- `--inject-docs           Inject the active aw project instructions into CLAUDE.md and AGENTS.md`
 - `--name string           Permanent identity name (required with --permanent)`
 - `--permanent             Create a durable self-custodial identity instead of the default ephemeral identity`
 - `--print-exports         Print shell export lines after JSON output`
@@ -105,7 +105,7 @@ Flags:
 - `--alias string            Ephemeral identity routing alias (optional; default: server-suggested)`
 - `-h, --help                    help for create`
 - `--human-name string       Human name (default: AWEB_HUMAN or $USER)`
-- `--inject-docs             Inject aw coordination instructions into CLAUDE.md and AGENTS.md`
+- `--inject-docs             Inject the active aw project instructions into CLAUDE.md and AGENTS.md`
 - `--name string             Permanent identity name (required with --permanent)`
 - `--namespace string        Authoritative namespace slug when it differs from the project slug (default: project slug)`
 - `--namespace-slug string   Authoritative namespace slug (alias for --namespace)`
@@ -183,7 +183,7 @@ Flags:
 - `--alias string          Ephemeral identity routing alias (optional; default: invite or server-suggested)`
 - `-h, --help                  help for accept-invite`
 - `--human-name string     Human name (default: AWEB_HUMAN or $USER)`
-- `--inject-docs           Inject aw coordination instructions into CLAUDE.md and AGENTS.md`
+- `--inject-docs           Inject the active aw project instructions into CLAUDE.md and AGENTS.md`
 - `--name string           Permanent identity name (required with --permanent)`
 - `--permanent             Create a durable self-custodial identity instead of the default ephemeral identity`
 - `--print-exports         Print shell export lines after JSON output`
@@ -561,6 +561,48 @@ Silent if no pending chats; outputs JSON with additionalContext if there are mes
 
 Flags:
 - `-h, --help   help for notify`
+
+## `instructions`
+
+### `instructions`
+
+Subcommands:
+- `activate    Activate an existing shared project instructions version`
+- `history     List shared project instructions history`
+- `reset       Reset shared project instructions to the server default`
+- `set         Create and activate a new shared project instructions version`
+- `show        Show shared project instructions`
+
+Flags:
+- `-h, --help   help for instructions`
+
+### `instructions activate`
+
+Flags:
+- `-h, --help   help for activate`
+
+### `instructions history`
+
+Flags:
+- `-h, --help        help for history`
+- `--limit int   Max instruction versions (default 20)`
+
+### `instructions reset`
+
+Flags:
+- `-h, --help   help for reset`
+
+### `instructions set`
+
+Flags:
+- `--body string        Instructions markdown body`
+- `--body-file string   Read instructions markdown from file ('-' for stdin)`
+- `-h, --help               help for set`
+
+### `instructions show`
+
+Flags:
+- `-h, --help   help for show`
 
 ## `role-name`
 

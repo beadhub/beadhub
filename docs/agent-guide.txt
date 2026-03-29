@@ -130,6 +130,11 @@ Roles:
   aw roles list
   aw role-name set <role-name>
 
+Project instructions:
+  aw instructions show
+  aw instructions history
+  aw instructions set --body-file <path>
+
 Locks:
   aw lock acquire --resource-key <key> --ttl-seconds 1800
   aw lock release --resource-key <key>
@@ -140,8 +145,8 @@ Local files:
 - `.aw/context` selects the account for this directory.
 - `.aw/workspace.yaml` stores repo/worktree-local coordination state.
 - `aw project create --inject-docs`, `aw init --inject-docs`, and
-  `aw spawn accept-invite --inject-docs` can inject coordination instructions
-  into `AGENTS.md` or `CLAUDE.md`.
+  `aw spawn accept-invite --inject-docs` can inject the active shared project
+  instructions into `AGENTS.md` or `CLAUDE.md`.
 - `aw init --setup-hooks` can install the Claude Code PostToolUse hook for
   `aw notify`.
 
