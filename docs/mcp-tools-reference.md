@@ -1,7 +1,7 @@
 # MCP Tools Reference
 
 This reference is generated from the live MCP registration in
-[`server/src/aweb/mcp/server.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/mcp/server.py).
+[`server/src/aweb/mcp/server.py`](../server/src/aweb/mcp/server.py).
 
 ## Transport and Auth
 
@@ -93,6 +93,6 @@ This reference is generated from the live MCP registration in
 - Tools are thin wrappers over the same coordination primitives exposed by the
   REST API.
 - If you add a new MCP tool, implement the behavior under
-  [`server/src/aweb/mcp/tools/`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/mcp/tools),
+  [`server/src/aweb/mcp/tools/`](../server/src/aweb/mcp/tools),
   then register it in
-  [`server/src/aweb/mcp/server.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/mcp/server.py).
+  [`server/src/aweb/mcp/server.py`](../server/src/aweb/mcp/server.py).

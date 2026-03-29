@@ -1,6 +1,6 @@
 # aw Identity System
 
-Source of truth: [../../aweb-cloud-quinn/docs/id-sot.md](../../aweb-cloud-quinn/docs/id-sot.md)
+Source of truth: [../../../docs/id-sot.md](../../../docs/id-sot.md)
 
 This document describes the clean-slate model implemented by the `aw` CLI.
 The important separation is:

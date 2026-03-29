@@ -3,10 +3,10 @@
 This guide covers the operator-facing deployment surface for the OSS `aweb`
 stack. It is derived from:
 
-- [`server/docker-compose.yml`](/Users/juanre/prj/awebai/aweb-frank/server/docker-compose.yml)
-- [`server/.env.example`](/Users/juanre/prj/awebai/aweb-frank/server/.env.example)
-- [`server/src/aweb/config.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/config.py)
-- [`scripts/e2e-oss-user-journey.sh`](/Users/juanre/prj/awebai/aweb-frank/scripts/e2e-oss-user-journey.sh)
+- [`server/docker-compose.yml`](../server/docker-compose.yml)
+- [`server/.env.example`](../server/.env.example)
+- [`server/src/aweb/config.py`](../server/src/aweb/config.py)
+- [`scripts/e2e-oss-user-journey.sh`](../scripts/e2e-oss-user-journey.sh)
 
 ## Runtime Architecture
 
@@ -97,7 +97,7 @@ uv run aweb serve
 
 The default compose file does the following:
 
-- builds the `aweb` image from [`server/Dockerfile`](/Users/juanre/prj/awebai/aweb-frank/server/Dockerfile)
+- builds the `aweb` image from [`server/Dockerfile`](../server/Dockerfile)
 - injects `AWEB_DATABASE_URL` pointing at the compose `postgres` service
 - injects `AWEB_REDIS_URL` pointing at the compose `redis` service
 - publishes `${AWEB_PORT:-8000}:8000`

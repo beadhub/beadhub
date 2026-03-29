@@ -1,7 +1,7 @@
 # Server API Reference
 
 This reference is generated from the live FastAPI app in
-[`server/src/aweb/api.py`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/api.py)
+[`server/src/aweb/api.py`](../server/src/aweb/api.py)
 and its mounted routers.
 
 ## Conventions

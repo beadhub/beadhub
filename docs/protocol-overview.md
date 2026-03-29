@@ -1,9 +1,9 @@
 # Protocol Overview
 
 This document is the developer-oriented summary of the identity and trust model
-defined in [`docs/id-sot.md`](/Users/juanre/prj/awebai/aweb-frank/docs/id-sot.md)
+defined in [`docs/id-sot.md`](./id-sot.md)
 and
-[`docs/identity-key-verification.md`](/Users/juanre/prj/awebai/aweb-frank/docs/identity-key-verification.md).
+[`docs/identity-key-verification.md`](./identity-key-verification.md).
 
 ## Core Objects
 
@@ -25,7 +25,7 @@ another in code or docs.
 | Permanent identity | Durable trust-bearing identity. Uses both `did:key` and stable `did:aw`. Supports archival, rotation, and replacement. |
 
 Permanent identity continuity is part of OSS `aweb`; it is implemented under
-[`server/src/aweb/awid/`](/Users/juanre/prj/awebai/aweb-frank/server/src/aweb/awid).
+[`server/src/aweb/awid/`](../server/src/aweb/awid).
 
 ## Custody Modes
 
@@ -90,7 +90,7 @@ The trust model has two layers:
    - resolve `did:aw`
    - fetch `/v1/did/{did_aw}/key`
    - verify the signed log head as described in
-     [`identity-key-verification.md`](/Users/juanre/prj/awebai/aweb-frank/docs/identity-key-verification.md)
+     [`identity-key-verification.md`](./identity-key-verification.md)
 
 The stable identity routes are:
 

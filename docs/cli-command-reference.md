@@ -1,7 +1,7 @@
 # CLI Command Reference
 
 This reference is derived from the live Cobra help tree generated from the
-`aw` binary under [`cli/go/cmd/aw/`](/Users/juanre/prj/awebai/aweb-frank/cli/go/cmd/aw).
+`aw` binary under [`cli/go/cmd/aw/`](../cli/go/cmd/aw).
 
 ## Command Families
 
