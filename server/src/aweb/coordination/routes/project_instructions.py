@@ -8,8 +8,10 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import asyncpg.exceptions
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pgdbm import AsyncDatabaseManager
+from pgdbm.errors import QueryError
 from pydantic import BaseModel, Field, field_validator
 
 from aweb.auth import enforce_actor_binding, validate_workspace_id
@@ -320,13 +322,24 @@ async def get_active_project_instructions(
         if legacy_body:
             document["body_md"] = legacy_body
 
-    instructions_version = await create_project_instructions_version(
-        db,
-        project_id=project_id,
-        base_project_instructions_id=None,
-        document=document,
-        created_by_workspace_id=None,
-    )
+    try:
+        instructions_version = await create_project_instructions_version(
+            db,
+            project_id=project_id,
+            base_project_instructions_id=None,
+            document=document,
+            created_by_workspace_id=None,
+        )
+    except (QueryError, asyncpg.exceptions.UniqueViolationError) as exc:
+        if isinstance(exc, QueryError) and not isinstance(
+            exc.__cause__, asyncpg.exceptions.UniqueViolationError
+        ):
+            raise
+        # A concurrent bootstrap already created the version — read it
+        logger.info("Concurrent bootstrap for project %s, retrying read", project_id)
+        return await get_active_project_instructions(
+            db, project_id, bootstrap_if_missing=False
+        )
     await activate_project_instructions(
         db,
         project_id=project_id,

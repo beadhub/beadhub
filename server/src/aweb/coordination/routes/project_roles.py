@@ -8,8 +8,10 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import asyncpg.exceptions
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pgdbm import AsyncDatabaseManager
+from pgdbm.errors import QueryError
 from pydantic import BaseModel, Field, model_validator
 
 from aweb.auth import enforce_actor_binding, validate_workspace_id
@@ -110,13 +112,24 @@ async def get_active_project_roles(
         return None
 
     logger.info("Bootstrapping default project roles for project %s", project_id)
-    project_roles_version = await create_project_roles_version(
-        db,
-        project_id=project_id,
-        base_project_roles_id=None,
-        bundle=get_default_bundle(),
-        created_by_workspace_id=None,
-    )
+    try:
+        project_roles_version = await create_project_roles_version(
+            db,
+            project_id=project_id,
+            base_project_roles_id=None,
+            bundle=get_default_bundle(),
+            created_by_workspace_id=None,
+        )
+    except (QueryError, asyncpg.exceptions.UniqueViolationError) as exc:
+        if isinstance(exc, QueryError) and not isinstance(
+            exc.__cause__, asyncpg.exceptions.UniqueViolationError
+        ):
+            raise
+        # A concurrent bootstrap already created the version — read it
+        logger.info("Concurrent bootstrap for project %s, retrying read", project_id)
+        return await get_active_project_roles(
+            db, project_id, bootstrap_if_missing=False
+        )
     await activate_project_roles(
         db,
         project_id=project_id,

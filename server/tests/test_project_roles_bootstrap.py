@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
@@ -7,7 +8,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from aweb.coordination.routes.project_instructions import instructions_router
+from aweb.coordination.routes.project_instructions import (
+    get_active_project_instructions,
+    instructions_router,
+)
 from aweb.coordination.routes.project_roles import roles_router
 from aweb.db import get_db_infra
 from aweb.redis_client import get_redis
@@ -259,3 +263,57 @@ async def test_legacy_invariants_backfill_active_project_instructions(aweb_cloud
         assert data["project_instructions_id"]
         assert "Mail first" in data["document"]["body_md"]
         assert "Use `aw mail` for non-blocking coordination." in data["document"]["body_md"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_bootstrap_does_not_500(aweb_cloud_db):
+    """Two concurrent first reads must not race on bootstrap INSERT."""
+    server_db = aweb_cloud_db.oss_db
+    app = _build_roles_test_app(aweb_db=aweb_cloud_db.aweb_db, server_db=server_db)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        slug = f"race-{uuid.uuid4().hex[:8]}"
+        created = await client.post(
+            "/api/v1/create-project",
+            json={
+                "project_slug": slug,
+                "namespace_slug": slug,
+                "alias": "alice",
+            },
+        )
+        assert created.status_code == 200, created.text
+        created_data = created.json()
+        api_key = created_data["api_key"]
+        project_id = created_data["project_id"]
+
+        # Remove bootstrapped instructions so the next reads trigger bootstrap
+        await server_db.execute(
+            "DELETE FROM {{tables.project_instructions}} WHERE project_id = $1",
+            project_id,
+        )
+        await server_db.execute(
+            "UPDATE {{tables.projects}} SET active_project_instructions_id = NULL WHERE id = $1",
+            project_id,
+        )
+
+        # Concurrent bootstrap calls — both see no active instructions and
+        # both attempt to create version 1.  Depending on timing, one may
+        # hit a duplicate-key UniqueViolationError.  The fix must ensure
+        # neither call raises and both return a valid result.
+        results = await asyncio.gather(
+            get_active_project_instructions(
+                server_db, project_id, bootstrap_if_missing=True
+            ),
+            get_active_project_instructions(
+                server_db, project_id, bootstrap_if_missing=True
+            ),
+        )
+        assert results[0] is not None
+        assert results[1] is not None
+
+        # After the race, the project must have exactly one active version
+        active = await client.get(
+            "/v1/instructions/active",
+            headers=_auth_headers(api_key),
+        )
+        assert active.status_code == 200, active.text
