@@ -99,3 +99,16 @@ func TestFormatToolCallLinesCompactsTaskUpdateCommands(t *testing.T) {
 		t.Fatalf("unexpected task tool line %#v", lines[0])
 	}
 }
+
+func TestFormatUserInputDisplayUsesDistinctUserLane(t *testing.T) {
+	lines := formatUserInputDisplay("review retry path\ninclude the PTY flow")
+	if len(lines) != 2 {
+		t.Fatalf("expected two user lines, got %#v", lines)
+	}
+	if lines[0].Kind != DisplayKindUserInput || lines[0].Text != "> review retry path" {
+		t.Fatalf("unexpected first user line %#v", lines[0])
+	}
+	if lines[1].Kind != DisplayKindUserInput || lines[1].Text != "  include the PTY flow" {
+		t.Fatalf("unexpected second user line %#v", lines[1])
+	}
+}

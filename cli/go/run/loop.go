@@ -214,7 +214,7 @@ func (l *Loop) Run(ctx context.Context, opts LoopOptions) error {
 		cycleLabel := displayCycleLabel(mission, decision.CycleContext)
 		displayLines := decision.DisplayLines
 		if len(displayLines) == 0 {
-			displayLines = []DisplayLine{{Kind: DisplayKindPrompt, Text: "> " + cycleLabel}}
+			displayLines = formatUserInputDisplay(cycleLabel)
 		}
 		if strings.TrimSpace(fullPrompt) == "" {
 			if l.Dispatch == nil && state.Run > 0 && strings.TrimSpace(opts.BasePrompt) == "" && strings.TrimSpace(opts.InitialPrompt) != "" {
@@ -351,11 +351,15 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 	st.RunPhase = RunPhaseWorking
 	l.setBusy(true)
 	defer l.setBusy(false)
-	l.displayText(DisplayKindPlain, "\n")
-	for _, line := range displayLines {
-		l.displayLine(line.Kind, line.Text)
+	if len(displayLines) > 0 {
+		if st != nil && st.Run > 1 {
+			l.displayText(DisplayKindPlain, "\n")
+		}
+		for _, line := range displayLines {
+			l.displayLine(line.Kind, line.Text)
+		}
+		l.displayText(DisplayKindPlain, "\n")
 	}
-	l.displayText(DisplayKindPlain, "\n")
 	l.setStatusLine(formatRunStatus(st))
 	l.renderInputPrompt(st)
 
@@ -408,7 +412,7 @@ func (l *Loop) runOnce(ctx context.Context, opts LoopOptions, st *state, prompt 
 			providerInput.SetWriter(w)
 		}
 		sinks.ptyPartial = func(chunk string) {
-			l.handleRawProviderChunk("", chunk, presenter)
+			l.handleRawProviderChunk("provider", chunk, presenter)
 		}
 	} else {
 		sinks.stderrLine = func(line string) {
@@ -577,6 +581,8 @@ func (l *Loop) handleRawProviderChunk(label string, chunk string, presenter *pre
 		kind = DisplayKindProviderStderr
 	case "provider stdout":
 		kind = DisplayKindProviderStdout
+	case "provider":
+		kind = DisplayKindProviderStdout
 	case "":
 		kind = DisplayKindAgentText
 	default:
@@ -640,8 +646,10 @@ func (l *Loop) runPresenterEnsureStructuredSpacing(presenter *presenterState) {
 	}
 	if presenter.lastWasText {
 		if l.screen() != nil {
-			if !presenter.lastTextEndedWithNewline {
+			if presenter.lastTextEndedWithNewline {
 				l.displayText(presenter.lastTextKind, "\n")
+			} else {
+				l.displayText(presenter.lastTextKind, "\n\n")
 			}
 		} else {
 			if presenter.lastTextEndedWithNewline {

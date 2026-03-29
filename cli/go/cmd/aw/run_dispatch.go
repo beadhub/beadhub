@@ -53,7 +53,7 @@ func (d runDispatcher) Next(ctx context.Context, autofeed bool, wakeEvent *awid.
 		}
 		return awrun.DispatchDecision{
 			CycleContext: joinPromptSections(resolved.CycleContext, d.commsPromptSuffix),
-			DisplayLines: awrun.SplitDisplayText(awrun.DisplayKindCommunication, resolved.CycleContext),
+			DisplayLines: awrun.SplitDisplayText(awrun.DisplayKindCommunication, strings.TrimSpace(resolved.CycleContext)),
 			WaitSeconds:  awrun.DefaultWaitSeconds,
 		}, nil
 	case awid.AgentEventWorkAvailable, awid.AgentEventClaimUpdate, awid.AgentEventClaimRemoved:

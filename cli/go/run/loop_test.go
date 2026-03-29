@@ -113,6 +113,71 @@ func (r *recordingUI) sawBusy(active bool) bool {
 	return false
 }
 
+type screenLikeUI struct {
+	*fakeInputController
+	outputMu sync.Mutex
+	output   string
+	current  string
+}
+
+func newScreenLikeUI() *screenLikeUI {
+	return &screenLikeUI{fakeInputController: newFakeInputController()}
+}
+
+func (s *screenLikeUI) AppendText(text string) {
+	s.AppendDisplayText(DisplayKindPlain, text)
+}
+
+func (s *screenLikeUI) AppendDisplayText(_ DisplayKind, text string) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	parts := strings.Split(text, "\n")
+	if len(parts) == 1 {
+		s.current += parts[0]
+		return
+	}
+	s.current += parts[0]
+	s.output += s.current + "\n"
+	for _, part := range parts[1 : len(parts)-1] {
+		s.output += part + "\n"
+	}
+	s.current = parts[len(parts)-1]
+}
+
+func (s *screenLikeUI) AppendLine(text string) {
+	s.AppendDisplayLine(DisplayKindPlain, text)
+}
+
+func (s *screenLikeUI) AppendDisplayLine(_ DisplayKind, text string) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if s.current != "" {
+		s.output += s.current + "\n"
+		s.current = ""
+	}
+	s.output += text + "\n"
+}
+
+func (s *screenLikeUI) DiscardCurrentDisplayLine() {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	s.current = ""
+}
+
+func (s *screenLikeUI) SetInputLine(string)      {}
+func (s *screenLikeUI) ClearInputLine()          {}
+func (s *screenLikeUI) SetExitConfirmation(bool) {}
+func (s *screenLikeUI) HasActiveProgram() bool   { return true }
+func (s *screenLikeUI) SetBusy(bool)             {}
+func (s *screenLikeUI) SetStatusLine(string)     {}
+func (s *screenLikeUI) ClearStatusLine()         {}
+
+func (s *screenLikeUI) outputString() string {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	return s.output + s.current
+}
+
 type fakeDispatcher struct {
 	decisions []DispatchDecision
 	index     int
@@ -431,7 +496,108 @@ func TestLoopLeavesBlankLineAfterAgentTextBeforeToolOutput(t *testing.T) {
 	}
 }
 
-func TestScreenModeDoesNotAddExtraSpacerAfterCompletedAgentLine(t *testing.T) {
+func TestScreenKeepsShortAssistantPrefixAboveToolCall(t *testing.T) {
+	ui := newScreenLikeUI()
+	loop := NewLoop(ClaudeProvider{}, io.Discard)
+	loop.Control = ui
+	st := &state{}
+	presenter := &presenterState{}
+
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Here"}}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git status --short"}}]}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"'s what I see, Juan:\n"}}}`, presenter, st, nil, nil)
+
+	got := ui.outputString()
+	if !strings.Contains(got, "● Here\n\n· git status --short\n\n● 's what I see, Juan:\n") {
+		t.Fatalf("expected short assistant text to stay above the tool call and resume below it, got %q", got)
+	}
+}
+
+func TestScreenKeepsLongAssistantPrefixAboveToolCall(t *testing.T) {
+	ui := newScreenLikeUI()
+	loop := NewLoop(ClaudeProvider{}, io.Discard)
+	loop.Control = ui
+	st := &state{}
+	presenter := &presenterState{}
+
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"The linter changes are already committed or were in-memory only. "}}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Let me check if the provider_claude.go on disk"}}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"head -25 cli/go/run/provider_claude.go"}}]}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":" matches what the system showed.\n"}}}`, presenter, st, nil, nil)
+
+	got := ui.outputString()
+	if !strings.Contains(got, "● The linter changes are already committed or were in-memory only. Let me check if the provider_claude.go on disk\n\n· head -25 cli/go/run/provider_claude.go\n\n●  matches what the system showed.\n") {
+		t.Fatalf("expected long assistant prefix to stay above the tool call and resume below it, got %q", got)
+	}
+	if strings.Contains(got, "● The linter changes are already committed or were in-memory only. Let me check if the provider_claude.go on disk matches what the system showed.\n") {
+		t.Fatalf("expected long assistant prefix not to be rejoined across the tool call, got %q", got)
+	}
+}
+
+func TestScreenKeepsFullAssistantLineAcrossMultipleChunks(t *testing.T) {
+	ui := newScreenLikeUI()
+	loop := NewLoop(ClaudeProvider{}, io.Discard)
+	loop.Control = ui
+	st := &state{}
+	presenter := &presenterState{}
+
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"The old code had "}}}`, presenter, st, nil, nil)
+	loop.handleOutputLine("{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"`-p` followed by \"}}}", presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"the prompt text as the next argument.\n"}}}`, presenter, st, nil, nil)
+
+	got := ui.outputString()
+	want := "● The old code had `-p` followed by the prompt text as the next argument.\n"
+	if got != want {
+		t.Fatalf("expected streamed assistant chunks to append into one line, got %q", got)
+	}
+}
+
+func TestScreenDoesNotRejoinLongAssistantTextAcrossToolCall(t *testing.T) {
+	ui := newScreenLikeUI()
+	loop := NewLoop(ClaudeProvider{}, io.Discard)
+	loop.Control = ui
+	st := &state{}
+	presenter := &presenterState{}
+
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"But I need to check the provider_claude.go change more carefully. "}}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"The system told me it was modified. Let me compare what's on disk vs what's committed."}}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git diff HEAD -- cli/go/run/provider_claude.go cli/go/run/types.go 2>&1"}}]}}`, presenter, st, nil, nil)
+	loop.handleOutputLine(`{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"No diff — they match what's committed.\n"}}}`, presenter, st, nil, nil)
+
+	got := ui.outputString()
+	if strings.Contains(got, "what's committed.No diff") {
+		t.Fatalf("expected assistant continuation after tool call to start on a fresh line, got %q", got)
+	}
+	if !strings.Contains(got, "what's committed.\n\n· git diff HEAD -- cli/go/run/provider_claude.go cli/go/run/types.go 2>&1\n\n● No diff — they match what's committed.\n") {
+		t.Fatalf("expected tool call to stay between the original assistant text and the resumed assistant text, got %q", got)
+	}
+}
+
+func TestLoopDisplaysManualPromptInUserLaneWithoutLeadingBlankLine(t *testing.T) {
+	var out bytes.Buffer
+	loop := NewLoop(fakeProvider{event: &Event{Type: EventDone}}, &out)
+	loop.Runner = func(ctx context.Context, dir string, argv []string, onLine func(string), stderrSink any) error {
+		onLine("done")
+		return nil
+	}
+	loop.Dispatch = &fakeDispatcher{
+		decisions: []DispatchDecision{{Mission: "review the display lane", WaitSeconds: 0}},
+	}
+
+	if err := loop.Run(context.Background(), LoopOptions{MaxRuns: 1}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if strings.HasPrefix(got, "\n") {
+		t.Fatalf("expected first run transcript to avoid a leading blank line, got %q", got)
+	}
+	if !strings.Contains(got, "> review the display lane\n") {
+		t.Fatalf("expected manual prompt in user lane, got %q", got)
+	}
+}
+
+func TestScreenModeAddsBlankLineBeforeStructuredOutputAfterCompletedAgentLine(t *testing.T) {
 	ui := newRecordingUI()
 	loop := NewLoop(ClaudeProvider{}, io.Discard)
 	loop.Control = ui
@@ -445,8 +611,8 @@ func TestScreenModeDoesNotAddExtraSpacerAfterCompletedAgentLine(t *testing.T) {
 
 	ui.outputMu.Lock()
 	defer ui.outputMu.Unlock()
-	if ui.output != "" {
-		t.Fatalf("expected no extra screen-mode spacer after a completed agent line, got %q", ui.output)
+	if ui.output != "\n" {
+		t.Fatalf("expected one blank separator line after a completed agent line, got %q", ui.output)
 	}
 }
 
@@ -1600,7 +1766,7 @@ func TestRunOnceRendersIncomingCycleWithoutPromptMarker(t *testing.T) {
 	if strings.Contains(got, "> ● from architect (chat): can you review the retry path?") {
 		t.Fatalf("expected inbound cycle to avoid prompt marker, got %q", got)
 	}
-	if !strings.Contains(got, "\n● from architect (chat): can you review the retry path?\n") {
+	if !strings.Contains(got, "● from architect (chat): can you review the retry path?\n") {
 		t.Fatalf("expected inbound cycle line, got %q", got)
 	}
 }
@@ -1676,7 +1842,7 @@ func TestRunOnceKeepsArgPromptTransportForPTY(t *testing.T) {
 	}
 }
 
-func TestHandleRawProviderChunkPTYStartsOnFreshLineWithoutLabel(t *testing.T) {
+func TestHandleRawProviderChunkPTYStartsOnFreshLineWithProviderLabel(t *testing.T) {
 	var out bytes.Buffer
 	loop := NewLoop(fakeProvider{
 		event: &Event{Type: EventText, Text: "Juan"},
@@ -1685,19 +1851,16 @@ func TestHandleRawProviderChunkPTYStartsOnFreshLineWithoutLabel(t *testing.T) {
 	st := &state{}
 
 	loop.handleOutputLine("ignored", presenter, st, nil, nil)
-	loop.handleRawProviderChunk("", "Allow? [y/N]", presenter)
+	loop.handleRawProviderChunk("provider", "Allow? [y/N]", presenter)
 
 	got := out.String()
-	if strings.Contains(got, "provider tty:") {
-		t.Fatalf("expected PTY output to omit provider tty label, got %q", got)
+	if !strings.Contains(got, "provider: Allow? [y/N]") {
+		t.Fatalf("expected PTY output to use provider label, got %q", got)
 	}
-	if !strings.Contains(got, "Allow? [y/N]") {
-		t.Fatalf("expected PTY partial output, got %q", got)
-	}
-	if strings.Contains(got, "JuanAllow? [y/N]") {
+	if strings.Contains(got, "Juanprovider: Allow? [y/N]") {
 		t.Fatalf("expected PTY chunk to start on a fresh line, got %q", got)
 	}
-	if !strings.Contains(got, "Juan\nAllow? [y/N]") {
+	if !strings.Contains(got, "Juan\nprovider: Allow? [y/N]") {
 		t.Fatalf("expected PTY chunk to be separated from prior text, got %q", got)
 	}
 }

@@ -25,6 +25,26 @@ func TestAppendScreenTextTracksCompleteAndPartialLines(t *testing.T) {
 	}
 }
 
+func TestAppendScreenTextClearsEmptyTailKindAfterSeparator(t *testing.T) {
+	lines := []screenOutputLine{}
+	current := screenOutputLine{}
+
+	appendScreenText(&lines, &current, DisplayKindPlain, "\n")
+	if current != (screenOutputLine{}) {
+		t.Fatalf("expected separator newline to leave no active current line, got %#v", current)
+	}
+
+	appendScreenText(&lines, &current, DisplayKindAgentText, "● **")
+	appendScreenText(&lines, &current, DisplayKindAgentText, "P0:**")
+
+	if current.kind != DisplayKindAgentText {
+		t.Fatalf("expected assistant chunks after separator to keep agent kind, got %#v", current)
+	}
+	if current.text != "● **P0:**" {
+		t.Fatalf("expected assistant line to preserve its prefix across chunks, got %#v", current)
+	}
+}
+
 func TestStyleWrappedScreenLineUsesDisplayKinds(t *testing.T) {
 	cases := []struct {
 		kind DisplayKind
@@ -32,6 +52,7 @@ func TestStyleWrappedScreenLineUsesDisplayKinds(t *testing.T) {
 		want string
 	}{
 		{kind: DisplayKindPrompt, line: "> fix the bug", want: "prompt"},
+		{kind: DisplayKindUserInput, line: "> fix the bug", want: "user"},
 		{kind: DisplayKindTool, line: `· go test ./... 2>&1`, want: "tool"},
 		{kind: DisplayKindToolDetail, line: `  file_path="/tmp/image.png"`, want: "tool_detail"},
 		{kind: DisplayKindPlain, line: `   1. PTY default-off`, want: "plain"},
@@ -52,6 +73,8 @@ func TestStyleWrappedScreenLineUsesDisplayKinds(t *testing.T) {
 		switch tc.kind {
 		case DisplayKindPrompt:
 			got = "prompt"
+		case DisplayKindUserInput:
+			got = "user"
 		case DisplayKindTool:
 			got = "tool"
 		case DisplayKindToolDetail:
@@ -76,6 +99,15 @@ func TestStyleWrappedScreenLineUsesDisplayKinds(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("line %q: expected %s, got %s", tc.line, tc.want, got)
 		}
+	}
+}
+
+func TestStyleScreenLineStylesUserInputLabel(t *testing.T) {
+	styles := newScreenStyles()
+	got := styleScreenLine(screenOutputLine{kind: DisplayKindUserInput, text: `> review the retry path`}, styles)
+	want := styles.userLabel.Render(`>`) + styles.userText.Render(` review the retry path`)
+	if got != want {
+		t.Fatalf("unexpected styled user line %q", got)
 	}
 }
 
@@ -262,12 +294,12 @@ func TestWrapScreenLineUsesHangingIndentForAgentText(t *testing.T) {
 	}
 }
 
-func TestContentWidthForTerminalWidthCapsReadableColumn(t *testing.T) {
-	if got := contentWidthForTerminalWidth(120); got != 60 {
-		t.Fatalf("expected wide terminal to cap at 60, got %d", got)
+func TestContentWidthForTerminalWidthUsesFullTerminalWidth(t *testing.T) {
+	if got := contentWidthForTerminalWidth(120); got != 120 {
+		t.Fatalf("expected wide terminal to use full width, got %d", got)
 	}
-	if got := contentWidthForTerminalWidth(50); got != 45 {
-		t.Fatalf("expected terminal width 50 to leave a 5-column margin, got %d", got)
+	if got := contentWidthForTerminalWidth(50); got != 50 {
+		t.Fatalf("expected terminal width 50 to use full width, got %d", got)
 	}
 }
 
@@ -279,6 +311,21 @@ func TestWrapScreenLineUsesHangingIndentForProviderStderr(t *testing.T) {
 	for _, line := range lines[1:] {
 		if !strings.HasPrefix(line, strings.Repeat(" ", len("provider stderr: "))) {
 			t.Fatalf("expected stderr continuation to align under message body, got %#v", lines)
+		}
+	}
+}
+
+func TestWrapScreenLineKeepsIndentedCommBodyLinesAligned(t *testing.T) {
+	lines := wrapScreenLine(screenOutputLine{kind: DisplayKindCommunication, text: `   ownership split we discussed: docs/id-sot.md is now a hosted pointer to canonical docs`}, 40)
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped lines, got %#v", lines)
+	}
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(line, "   ") {
+			t.Fatalf("expected wrapped comm body to keep body indent, got %#v", lines)
+		}
+		if strings.HasPrefix(line, "                              ") {
+			t.Fatalf("expected wrapped comm body to avoid label-style over-indent, got %#v", lines)
 		}
 	}
 }

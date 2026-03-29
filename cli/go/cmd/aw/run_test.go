@@ -791,6 +791,11 @@ func TestNewRunDispatcherBuildsMailPrompt(t *testing.T) {
 	if len(decision.DisplayLines) == 0 || decision.DisplayLines[0].Kind != awrun.DisplayKindCommunication {
 		t.Fatalf("expected communication display lines, got %+v", decision.DisplayLines)
 	}
+	for _, line := range decision.DisplayLines {
+		if strings.Contains(line.Text, "comms suffix") {
+			t.Fatalf("expected display lines to exclude prompt suffix, got %+v", decision.DisplayLines)
+		}
+	}
 	if !strings.Contains(decision.CycleContext, "comms suffix") {
 		t.Fatalf("expected comms suffix in prompt, got %q", decision.CycleContext)
 	}

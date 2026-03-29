@@ -99,6 +99,7 @@ type DisplayKind string
 const (
 	DisplayKindPlain          DisplayKind = "plain"
 	DisplayKindPrompt         DisplayKind = "prompt"
+	DisplayKindUserInput      DisplayKind = "user_input"
 	DisplayKindAgentText      DisplayKind = "agent_text"
 	DisplayKindTool           DisplayKind = "tool"
 	DisplayKindToolDetail     DisplayKind = "tool_detail"

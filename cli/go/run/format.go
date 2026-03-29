@@ -119,6 +119,24 @@ func FormatCommLabel(direction string, alias string, channel string) string {
 	return label
 }
 
+func formatUserInputDisplay(text string) []DisplayLine {
+	text = strings.ReplaceAll(strings.TrimSpace(text), "\r", "")
+	if text == "" {
+		return nil
+	}
+	parts := strings.Split(text, "\n")
+	lines := make([]DisplayLine, 0, len(parts))
+	for idx, part := range parts {
+		part = strings.TrimRight(part, " ")
+		if idx == 0 {
+			lines = append(lines, DisplayLine{Kind: DisplayKindUserInput, Text: "> " + part})
+			continue
+		}
+		lines = append(lines, DisplayLine{Kind: DisplayKindUserInput, Text: "  " + part})
+	}
+	return lines
+}
+
 func SplitDisplayText(kind DisplayKind, text string) []DisplayLine {
 	text = strings.ReplaceAll(text, "\r", "")
 	text = strings.TrimRight(text, "\n")
