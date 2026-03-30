@@ -139,6 +139,8 @@ Project instructions:
   aw instructions show
   aw instructions history
   aw instructions set --body-file <path>
+  aw instructions activate <project-instructions-id>
+  aw instructions reset
 
 Locks:
   aw lock acquire --resource-key <key> --ttl-seconds 1800

@@ -124,6 +124,18 @@ Create and activate a new role bundle version:
 aw roles set --bundle-file roles.json
 ```
 
+Activate an existing role bundle version:
+
+```bash
+aw roles activate <project-roles-id>
+```
+
+Reset project roles to the server default bundle:
+
+```bash
+aw roles reset
+```
+
 Deactivate project roles for the current project:
 
 ```bash
@@ -140,6 +152,24 @@ List recent instructions versions:
 
 ```bash
 aw instructions history
+```
+
+Create and activate a new instructions version:
+
+```bash
+aw instructions set --body-file instructions.md
+```
+
+Activate an existing instructions version:
+
+```bash
+aw instructions activate <project-instructions-id>
+```
+
+Reset instructions to the server default:
+
+```bash
+aw instructions reset
 ```
 
 Set the current workspace role name:
